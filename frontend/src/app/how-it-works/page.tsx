@@ -9,7 +9,7 @@ type Config = {
   auto_pay_limit: number;
   controller_limit: number;
   price_tolerance_pct: number;
-  models: { vision: string; reasoning: string; safety: string };
+  models: { vision: string; reasoning: string; safety: string; critic?: string };
   inference: boolean;
   mail: boolean;
   mailbox: string | null;
@@ -60,20 +60,28 @@ export default function HowItWorks() {
             Pages are rendered to images for the vision model, so scans work. Every key value is then grounded against the PDF text layer. Separately, each text run is compared with the rendered pixels: text that is in the file but invisible on the page (white, microscopic, covered) is surfaced. Instruction-shaped text, the content-safety model ({c?.models.safety ?? "safety model"}) and the reader&apos;s own report of instructions it saw raise a quarantine.
           </Step>
           <Down />
-          <Step icon={<ShieldCheck className="h-4 w-4" />} title={`3. ${c?.controls.length ?? 20} deterministic controls`} who="Plain Python, no model">
-            Vendor master match, verified bank account, duplicate file, number and resubmission detection, line and total arithmetic, PO existence, ownership and status, currency, item on PO, price within {c?.price_tolerance_pct ?? 2}% of PO, cumulative quantity against ordered and received, payment terms. Each finding carries the evidence and the amount at risk.
+          <Step icon={<ShieldCheck className="h-4 w-4" />} title={`3. ${c?.controls.length ?? 23} deterministic controls, then the contract`} who="Plain Python, no model">
+            Vendor master match, lookalike names and tax ID conflicts, verified bank account, duplicate and resubmission detection, split billing under the approval limit, line and total arithmetic, PO existence, ownership and status, currency, item on PO, price within {c?.price_tolerance_pct ?? 2}% of PO, cumulative quantity against ordered and received, payment terms. Then the vendor&apos;s approved contract terms are applied: service credits from our own uptime monitoring, volume prices, price-increase caps. Money owed back is deducted, with the clause quoted in the remittance advice.
           </Step>
           <Down />
           <Step icon={<Bot className="h-4 w-4" />} title="4. The agent plans" who={`Vultr Serverless Inference: ${c?.models.reasoning ?? "reasoning model"}`}>
             The model sees the findings, the PO, the vendor history and the email thread, and returns a plan: email the vendor for a corrected invoice, ask the budget owner whether goods arrived, request approval, open a bank change, hold, reject, or pay. Document and email text is passed as untrusted data.
           </Step>
           <Down />
-          <Step icon={<Lock className="h-4 w-4" />} title="5. A policy guard executes, or refuses" who="Code the model cannot change">
+          <Step icon={<Users className="h-4 w-4" />} title="5. A critic checks the money" who={`Vultr Serverless Inference: ${c?.models.critic ?? "a second model"}`}>
+            Before a payment with deductions or above the auto-pay limit goes ahead, a different model recomputes what should be paid from the invoice, PO, receipts, contract and service measurements. If its figure differs, it cannot agree. Disagreement sends the payment to the CFO; concerns, to the controller. The critic can only add scrutiny.
+          </Step>
+          <Down />
+          <Step icon={<Lock className="h-4 w-4" />} title="6. A policy guard executes, or refuses" who="Code the model cannot change">
             Payment only with no open blocking findings, only to the vendor-master account, only with the approvals the amount needs (auto up to {c ? money(c.auto_pay_limit) : "$10,000"}, controller up to {c ? money(c.controller_limit) : "$50,000"}, CFO above). Emails go only to the contact on file, never to an address printed on the invoice. Blocking findings clear only on new evidence or a person. Refusals are logged and the model re-plans.
           </Step>
           <Down />
-          <Step icon={<Users className="h-4 w-4" />} title="6. People, only where they add judgment" who="Clerk, controller, CFO">
-            Approvals above the limits; bank changes that need a callback to the number on file and two different approvers; overrides with a written justification. Every decision hands control back to the agent, which picks up where it left off.
+          <Step icon={<Users className="h-4 w-4" />} title="7. People, only where they add judgment" who="Clerk, controller, CFO">
+            Approvals above the limits; bank changes that need a callback to the number on file and two different approvers; contract terms the model proposed; overrides with a written justification. Every decision hands control back to the agent, which picks up where it left off.
+          </Step>
+          <Down />
+          <Step icon={<Server className="h-4 w-4" />} title="8. The payment run" who="Deterministic optimiser, controller approves">
+            Everything due within the week is paid; cash above the floor goes to early-payment discounts, best annual return first; the rest stays in the bank until due. The approved run produces the bank batch file.
           </Step>
         </div>
 
@@ -86,7 +94,7 @@ export default function HowItWorks() {
               </li>
               <li className="flex gap-2.5">
                 <Cloud className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
-                <span><b>Serverless Inference</b>: vision extraction, planning and content safety. Invoice data stays on Vultr; no third-party model provider sees it.</span>
+                <span><b>Serverless Inference</b>: four models with separate jobs: vision extraction, planning and contract reading, an independent critic, and content safety. Invoice data stays on Vultr; no third-party model provider sees it.</span>
               </li>
               <li className="flex gap-2.5">
                 <Database className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
@@ -102,6 +110,7 @@ export default function HowItWorks() {
             <div className="space-y-1.5 text-[12.5px]">
               <div className="flex justify-between"><span className="text-slate-500">Vision model</span><Mono>{c?.models.vision}</Mono></div>
               <div className="flex justify-between"><span className="text-slate-500">Reasoning model</span><Mono>{c?.models.reasoning}</Mono></div>
+              <div className="flex justify-between"><span className="text-slate-500">Critic model</span><Mono>{c?.models.critic}</Mono></div>
               <div className="flex justify-between"><span className="text-slate-500">Safety model</span><Mono>{c?.models.safety}</Mono></div>
               <div className="flex justify-between"><span className="text-slate-500">Inference connected</span><span>{c?.inference ? "yes" : "no (rule-based fallback)"}</span></div>
               <div className="flex justify-between"><span className="text-slate-500">AP mailbox</span><span>{c?.mail ? c.mailbox : "simulated"}</span></div>

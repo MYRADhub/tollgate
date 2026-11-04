@@ -130,7 +130,7 @@ def config():
         "auto_pay_limit": settings.auto_pay_limit,
         "controller_limit": settings.controller_limit,
         "price_tolerance_pct": settings.price_tolerance_pct,
-        "models": {"vision": settings.model_vision, "reasoning": settings.model_reasoning, "safety": settings.model_safety},
+        "models": {"vision": settings.model_vision, "reasoning": settings.model_reasoning, "critic": settings.model_critic, "safety": settings.model_safety},
         "inference": bool(settings.inference_api_key),
         "mail": settings.mail_enabled,
         "mailbox": settings.gmail_address or None,
