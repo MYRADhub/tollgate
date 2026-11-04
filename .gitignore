@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+storage/
+node_modules/
+.next/
+out/
+.DS_Store
+.pytest_cache/
+backend/demo_invoices/
