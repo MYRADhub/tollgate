@@ -43,6 +43,10 @@ def _run_job(job_id: int) -> None:
             mailer.handle_vendor_reply(s, inv, int(job.payload["email_id"]))
         elif job.kind == "followup" and inv is not None:
             agent.followup(s, inv)
+        elif job.kind == "inquiry":
+            from . import inquiry
+
+            inquiry.handle(s, int(job.payload["email_id"]), job.payload.get("headers"))
         elif job.kind == "plan_run":
             from sqlalchemy import select as _select
 

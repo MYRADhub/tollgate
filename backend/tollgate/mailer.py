@@ -121,6 +121,10 @@ def handle_inbound(s: Session, raw: bytes) -> str | None:
         for name, data in atts:
             ingest(s, data, name, source="email", source_ref=f"{sender}: {subject}"[:300])
         return f"{len(atts)} new invoice(s) from {sender}"
+    if body or subject:
+        headers = {k: str(msg.get(k)) for k in ("Authentication-Results", "Auto-Submitted", "Precedence") if msg.get(k)}
+        enqueue(s, "inquiry", None, {"email_id": rec.id, "headers": headers})
+        return f"question from {sender}"
     return None
 
 

@@ -35,9 +35,17 @@ def test_own_outbound_is_ignored(db):
         assert s.execute(select(EmailMessage)).first() is None
 
 
-def test_unrelated_mail_without_pdf_is_ignored(db):
+def test_unrelated_mail_without_pdf_gets_no_reply(db):
+    from tollgate.models import EmailMessage, VendorInquiry
+    from tollgate.worker import drain
+
     with session_scope() as s:
-        assert handle_inbound(s, _msg("lunch?")) is None
+        handle_inbound(s, _msg("lunch?"))
+    drain()
+    with session_scope() as s:
+        q = s.execute(select(VendorInquiry)).scalar_one()
+        assert q.reply_email_id is None and q.outcome.startswith("not answered")
+        assert not s.execute(select(EmailMessage).where(EmailMessage.direction == "out")).first()
 
 
 def test_reply_is_threaded_to_invoice(db):

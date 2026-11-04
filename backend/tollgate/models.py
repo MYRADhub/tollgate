@@ -309,6 +309,28 @@ class InferenceSpend(Base):
     usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0))
 
 
+class VendorInquiry(Base):
+    """A question emailed by (or in the name of) a vendor, and how it was answered."""
+
+    __tablename__ = "vendor_inquiries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email_id: Mapped[int] = mapped_column(ForeignKey("emails.id"))
+    reply_email_id: Mapped[int | None] = mapped_column(ForeignKey("emails.id"))
+    sender: Mapped[str] = mapped_column(String(200), index=True)
+    subject: Mapped[str] = mapped_column(String(300), default="")
+    vendor_id: Mapped[str | None] = mapped_column(ForeignKey("vendors.id"))
+    match: Mapped[str] = mapped_column(String(20), default="unknown")
+    match_note: Mapped[str] = mapped_column(String(300), default="")
+    intent: Mapped[str] = mapped_column(String(30), default="other")
+    asked_about: Mapped[list] = mapped_column(JSON, default=list)
+    facts: Mapped[dict | None] = mapped_column(JSON)
+    flags: Mapped[list] = mapped_column(JSON, default=list)
+    reply_source: Mapped[str | None] = mapped_column(String(20))
+    draft_problems: Mapped[list] = mapped_column(JSON, default=list)
+    outcome: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class InvoiceCost(Base):
     """Model usage charged to one invoice. No foreign key: usage is flushed
     after the job's transaction, and the invoice may have been reset since."""

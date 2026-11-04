@@ -35,6 +35,7 @@ Paying a vendor invoice looks simple and is not. Before a company pays, someone 
 | Contains hidden text instructing the AI | Finds text that is in the file but invisible on the page, quarantines it, shows a person what it said |
 | Comes from a lookalike vendor, or is split to stay under the approval limit | Blocks it: never treated as the real vendor; split invoices need the approval their total would |
 | Offers 2/10 net 15 | The payment run pays it early when cash allows, because 2% in 10 days is worth about 149% a year |
+| A vendor emails "when will we be paid?" or "why were we short-paid?" | Answers from the ledger, for that vendor's own invoices only, quoting the contract deduction; refuses bank changes by email and tells a lookalike sender nothing |
 
 ## Design: the model reads and writes, code decides
 
@@ -72,9 +73,22 @@ A model reads each contract once and proposes machine-checkable terms (`sla_cred
 
 The **Attack lab** page lets anyone try to get Tollgate to pay something it should not: nine attack templates (hidden instructions, visible instructions, bank redirection, lookalike vendor, disguised duplicate, split invoices, inflated quantity, padded fee, inflated total), editable wording, or your own PDF. Lab invoices run through exactly the same pipeline but never send email, never join a payment run and never count on the dashboard; one that gets scheduled is shown as a miss.
 
+### Vendor questions
+
+Vendors email AP to ask about payments all day. The **Vendor questions** page (or, with Gmail connected, a real email) puts a question through the inquiry agent. The model only says what is being asked and words the reply; code decides the rest:
+
+- **Who is asking:** the sender must be the vendor's registered address, or a company domain only that vendor uses, and must not fail sender authentication (`Authentication-Results`). A lookalike domain is flagged as impersonation and gets a reply that discloses nothing.
+- **What may be said:** facts come only from that vendor's own invoices. Another vendor's invoice number is answered exactly like one that does not exist, and the reason for an internal hold is never given.
+- **What was said:** every amount, date (in any spelling), invoice reference and long digit run in the model's draft must appear in those facts, and no other supplier may be named; otherwise the reply is built from a template.
+- **Bank details are never changed by email**, even from the registered address. Automatic replies are not answered, and replies per sender are capped.
+
+### Cost per invoice
+
+Every model call made while working an invoice is charged to it. On the real models the demo inbox costs about **$0.0033 per invoice** (29 calls for 10 invoices). For comparison, Ardent Partners' 2025 *AP Metrics That Matter* puts best-in-class AP teams at $2.78 per invoice. Their figure is fully loaded, while ours covers model usage only, so the comparison is indicative.
+
 ## Evaluation on the real models
 
-`uv run python -m tollgate.evals --runs 3` runs four suites on fresh databases against Vultr Serverless Inference. Latest results (`backend/tollgate/eval_results.json`, also shown in the attack lab):
+`uv run python -m tollgate.evals --runs 3` runs five suites on fresh databases against Vultr Serverless Inference. Latest results (`backend/tollgate/eval_results.json`, also shown in the attack lab):
 
 | Suite | Passed |
 |---|---|
@@ -82,9 +96,10 @@ The **Attack lab** page lets anyone try to get Tollgate to pay something it shou
 | Demo inbox reaches its expected outcome and recovery amounts (10 invoices) | 30/30 |
 | Contract terms extracted exactly, with verbatim quotes (6 contracts) | 18/18 |
 | Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 17/18 |
-| **Total** | **92/93** |
+| Vendor questions: correct answer, nothing disclosed to the wrong sender, bank details unchanged (6 cases) | 18/18 |
+| **Total** | **110/111** |
 
-The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 76 unit and integration tests and 14 browser tests (see Running locally).
+The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 105 unit and integration tests and 15 browser tests (see Running locally).
 
 ## Vultr services used
 
@@ -123,8 +138,9 @@ Model choices were measured, not assumed: with thinking on, GLM-5.3 spent its wh
 6. Open **Granite GE-5561**, click **Log goods received**: it pays, net of the price-cap deduction.
 7. **Payment runs**: the agent took Lumen's 2% discount (149% a year) and left Brightline's 1% (18% a year) because cash above the floor ran out. Approve the run and download the bank file.
 8. **Contracts**: every term with its clause highlighted in the contract. Paste a new contract and watch the model propose terms for review.
-9. **Attack lab**: launch any attack, or upload your own PDF.
-10. **Audit trail → Verify chain.**
+9. **Vendor questions**: send "Why were we short-paid?" as Polaris, then "Impersonates a vendor" and "Asks to change bank details".
+10. **Attack lab**: launch any attack, or upload your own PDF.
+11. **Audit trail → Verify chain.**
 
 ## Running locally
 

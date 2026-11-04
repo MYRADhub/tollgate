@@ -150,6 +150,24 @@ test.describe.serial("guided demo, end to end", () => {
     expect((await (await request.get(`${API}/api/invoices`)).json()).length).toBe(before);
   });
 
+  test("vendor questions: the ledger answers its own vendor, a lookalike gets nothing", async ({ page, request }) => {
+    await page.goto("/inquiries");
+    await page.getByRole("button", { name: "Why were we short-paid?" }).click();
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Question sent to the AP inbox").first()).toBeVisible();
+    await settle(request);
+    const first = page.locator("li", { hasText: "Short payment on PNS-55120" });
+    await expect(first.getByText("Registered address", { exact: true })).toBeVisible();
+    await expect(first.getByText(/975\.00/).first()).toBeVisible();
+    await page.getByRole("button", { name: "Impersonates a vendor" }).click();
+    await page.getByRole("button", { name: "Send" }).click();
+    await settle(request);
+    const spoof = page.locator("li", { hasText: "Account statement request" });
+    await expect(spoof.getByText("Lookalike domain", { exact: true })).toBeVisible();
+    await expect(spoof.getByText(/could not match this address/)).toBeVisible();
+    await expect(spoof.getByText("Impersonation attempt")).toBeVisible();
+  });
+
   test("the audit chain verifies and the guided demo is complete", async ({ page, request }) => {
     // "seen" steps live in this browser's storage; each test starts with a fresh one
     for (const n of ["PNS-55120", "BIS-2090"]) {
