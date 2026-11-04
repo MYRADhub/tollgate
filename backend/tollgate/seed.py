@@ -175,8 +175,10 @@ def corrected_bis_2077() -> bytes:
 def reset_and_seed(s: Session) -> None:
     from . import models  # noqa: F401
 
+    keep = {"inference_spend", "mail_cursor"}  # the spend cap and mailbox position survive a demo reset
     for table in reversed(Base.metadata.sorted_tables):
-        s.execute(delete(table))
+        if table.name not in keep:
+            s.execute(delete(table))
     s.flush()
 
     verified = datetime(2025, 3, 1, tzinfo=timezone.utc)

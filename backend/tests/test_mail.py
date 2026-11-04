@@ -71,3 +71,14 @@ def test_budget_guard_blocks_calls(db, monkeypatch):
     monkeypatch.setattr(get_settings(), "inference_budget_usd", 0.005)
     with pytest.raises(llm.BudgetExceeded):
         llm.chat("glm-5.3", [{"role": "user", "content": "hi"}])
+
+
+def test_demo_reset_keeps_the_inference_spend(db):
+    from tollgate import llm
+    from tollgate.seed import reset_and_seed
+
+    llm._record("glm-5.3", type("U", (), {"prompt_tokens": 1000, "completion_tokens": 0})())
+    llm.flush_spend()
+    with session_scope() as s:
+        reset_and_seed(s)
+    assert llm.spent_usd() >= 0.003
