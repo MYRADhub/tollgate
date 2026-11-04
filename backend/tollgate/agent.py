@@ -323,6 +323,9 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
         s.add(pay)
         s.flush()
         inv.status = InvoiceStatus.scheduled
+        from .pipeline import enqueue
+
+        enqueue(s, "plan_run", None, {})
         msg = f"Scheduled {inv.currency} {_money(pay.amount)} to {v.name}, account ending {v.bank_account[-4:]} (verified), due {terms_due}"
         if ded:
             subject, body = remittance_advice(inv, pay)

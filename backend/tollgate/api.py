@@ -35,6 +35,7 @@ from .models import (
     InvoiceStatus,
     Job,
     Payment,
+    PaymentRun,
     PurchaseOrder,
     Severity,
     Vendor,
@@ -169,7 +170,8 @@ def stats(s: Session = Depends(get_session)):
                 corrected += max(old.total - i.total, Decimal(0))
     recovered = s.execute(select(func.coalesce(func.sum(Payment.deductions), 0))).scalar_one() or 0
     pending_approvals = s.execute(select(func.count(Approval.id)).where(Approval.decision.is_(None))).scalar_one()
-    scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status == "scheduled")).scalar_one()
+    scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status.in_(["scheduled", "released"]), Payment.run_id.is_not(None) | (Payment.status == "scheduled"))).scalar_one()
+    discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0))).scalar_one() or 0
     return {
         "invoices": len(invs),
         "by_status": by_status,
@@ -178,6 +180,7 @@ def stats(s: Session = Depends(get_session)):
         "touchless_rate": (len(touchless) / len(decided)) if decided else 0,
         "prevented": float(prevented + corrected),
         "recovered": float(recovered),
+        "discounts": float(discounts),
         "caught": caught,
         "pending_approvals": pending_approvals,
         "scheduled_total": float(scheduled_total or 0),
@@ -333,7 +336,8 @@ def payments(s: Session = Depends(get_session)):
     out = []
     for p in s.execute(select(Payment).order_by(Payment.scheduled_for)).scalars():
         inv = s.get(Invoice, p.invoice_id)
-        out.append({**ser(p, ["id", "amount", "currency", "pay_to_account", "scheduled_for", "status", "invoice_id"]),
+        out.append({**ser(p, ["id", "gross", "deductions", "discount", "amount", "currency", "pay_to_account", "scheduled_for", "due_date",
+                              "discount_deadline", "discount_pct", "status", "invoice_id", "run_id"]),
                     "vendor": inv.vendor.name if inv.vendor else None, "number": inv.number})
     return out
 
@@ -539,6 +543,44 @@ def decide_term(term_id: int, body: TermDecision):
                     [InvoiceStatus.on_hold, InvoiceStatus.awaiting_approval, InvoiceStatus.awaiting_vendor]))).scalars():
                 pipeline.enqueue(s, "recheck", inv.id, {"reason": "contract term approved"})
         return {"ok": True}
+
+
+# --------------------------------------------------------------------------- payment runs
+
+
+@app.get("/api/payment-runs")
+def payment_runs(s: Session = Depends(get_session)):
+    from .paymentrun import cash_position
+
+    runs = [ser(r, ["id", "run_date", "status", "cash_before", "cash_floor", "total", "discounts", "plan", "proposed_by", "approved_by", "created_at", "approved_at"])
+            for r in s.execute(select(PaymentRun).order_by(PaymentRun.id.desc()).limit(20)).scalars()]
+    return {"cash": float(cash_position(s)), "floor": settings.cash_floor_usd, "horizon_days": settings.run_horizon_days, "runs": runs}
+
+
+@app.post("/api/payment-runs/plan")
+def plan_run(body: Actor):
+    from .paymentrun import propose
+
+    with session_scope() as s:
+        run = propose(s, actor=f"{body.user} ({body.role})")
+        return {"id": run.id if run else None}
+
+
+@app.post("/api/payment-runs/{run_id}/approve")
+def approve_run(run_id: int, body: Actor):
+    from .paymentrun import approve
+
+    return _wrap(lambda s: {"ok": bool(approve(s, run_id, body.user, body.role))})
+
+
+@app.get("/api/payment-runs/{run_id}/bank-file")
+def run_file(run_id: int, s: Session = Depends(get_session)):
+    from .paymentrun import bank_file
+
+    r = s.get(PaymentRun, run_id)
+    if r is None or r.status != "approved":
+        raise HTTPException(404)
+    return Response(bank_file(s, run_id), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="tollgate-run-{run_id}.csv"'})
 
 
 # --------------------------------------------------------------------------- demo

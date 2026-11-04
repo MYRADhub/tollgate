@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     vendor_followup_hours: float = 24.0
     agent_max_steps: int = 8
 
+    # Treasury, for payment runs
+    cash_balance_usd: float = 40_000.0
+    cash_floor_usd: float = 15_000.0
+    run_horizon_days: int = 7
+
     # Public demo guard rails
     demo_mode: bool = True
     max_uploads_per_hour: int = 30

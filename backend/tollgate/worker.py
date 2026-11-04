@@ -12,7 +12,7 @@ import time
 
 from sqlalchemy import select, update
 
-from . import agent, mailer, pipeline
+from . import agent, mailer, paymentrun, pipeline
 from .config import get_settings
 from .db import init_db, session_scope
 from .llm import flush_spend
@@ -36,6 +36,12 @@ def run_job(job_id: int) -> None:
             mailer.handle_vendor_reply(s, inv, int(job.payload["email_id"]))
         elif job.kind == "followup" and inv is not None:
             agent.followup(s, inv)
+        elif job.kind == "plan_run":
+            from sqlalchemy import select as _select
+
+            newer = s.execute(_select(Job.id).where(Job.kind == "plan_run", Job.status == "queued", Job.id > job.id)).first()
+            if newer is None:  # several invoices scheduled together: plan once, after the last
+                paymentrun.propose(s)
 
 
 def run_due_jobs(limit: int = 10) -> int:
