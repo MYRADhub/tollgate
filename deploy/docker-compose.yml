@@ -1,0 +1,47 @@
+# Tollgate on a single Vultr Cloud Compute instance.
+# Postgres and object storage are Vultr managed services, configured in .env.
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web, api]
+
+  api:
+    build: ../backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TOLLGATE_LOCAL_STORAGE_DIR: /data/storage
+    volumes: [app_data:/data]
+    mem_limit: 1g
+
+  worker:
+    build: ../backend
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "-m", "tollgate.worker"]
+    environment:
+      TOLLGATE_LOCAL_STORAGE_DIR: /data/storage
+    volumes: [app_data:/data]
+    depends_on: [api]
+    mem_limit: 1g
+
+  web:
+    build: ../frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://api:8000
+    depends_on: [api]
+    mem_limit: 512m
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:
