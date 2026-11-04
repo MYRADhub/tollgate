@@ -113,7 +113,11 @@ def health():
 
 @app.get("/api/config")
 def config():
+    from .llm import spent_usd
+
     return {
+        "inference_spent_usd": round(spent_usd(), 4),
+        "inference_budget_usd": settings.inference_budget_usd,
         "auto_pay_limit": settings.auto_pay_limit,
         "controller_limit": settings.controller_limit,
         "price_tolerance_pct": settings.price_tolerance_pct,

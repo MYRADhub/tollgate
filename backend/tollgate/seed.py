@@ -32,11 +32,7 @@ TODAY = date(2026, 11, 3)
 
 
 def vendor_email(slug: str) -> str:
-    g = get_settings().gmail_address
-    if g and "@" in g:
-        user, domain = g.split("@", 1)
-        return f"{user}+{slug}@{domain}"
-    return f"billing@{slug}.example.com"
+    return get_settings().alias(slug) or f"billing@{slug}.example.com"
 
 
 @dataclass
@@ -88,11 +84,7 @@ POS = [
 
 
 def _owner_email(local: str) -> str:
-    g = get_settings().gmail_address
-    if g and "@" in g:
-        user, domain = g.split("@", 1)
-        return f"{user}+{local}@{domain}"
-    return f"{local}@halden.example.com"
+    return get_settings().alias(local) or f"{local}@halden.example.com"
 
 
 def spec_for(slug: str, number: str, inv_date: date, po: str | None, lines: list[tuple], **kw) -> InvoiceSpec:

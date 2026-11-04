@@ -26,14 +26,16 @@ TAG = re.compile(r"\[TG-([0-9a-f]{12})\]")
 
 def send(s: Session, *, invoice_id: str | None, to: str, subject: str, body: str, attachments: list[tuple[str, bytes]] | None = None) -> EmailMessage:
     cfg = get_settings()
-    sender = cfg.gmail_address or "ap@halden.example.com"
+    sender = cfg.ap_address
     msgid = make_msgid(domain=(sender.split("@")[-1] or "tollgate.local"))
     rec = EmailMessage(invoice_id=invoice_id, direction="out", sender=sender, recipient=to, subject=subject, body=body, message_id=msgid,
                        attachments=[n for n, _ in (attachments or [])])
     if cfg.mail_enabled and cfg.gmail_address and cfg.gmail_app_password:
         m = MimeMessage()
-        m["From"] = f"Tollgate AP <{sender}>"
+        m["From"] = f"Halden Robotics AP (Tollgate) <{cfg.gmail_address}>"
+        m["Reply-To"] = sender
         m["To"] = to
+        m["X-Tollgate-Out"] = "1"
         m["Subject"] = subject
         m["Message-ID"] = msgid
         m.set_content(body)
@@ -94,8 +96,8 @@ def handle_inbound(s: Session, raw: bytes) -> str | None:
     sender = parseaddr(msg.get("From", ""))[1]
     cfg = get_settings()
     subject = str(msg.get("Subject", ""))
-    if msg.get("X-Tollgate-Out") or (sender.lower() == (cfg.gmail_address or "").lower() and not TAG.search(subject) and not _attachments(msg)):
-        return None
+    if msg.get("X-Tollgate-Out"):
+        return None  # our own outbound mail, seen again because it was sent to a plus-address of this mailbox
     atts = _attachments(msg)
     body = _body(msg)
     m = TAG.search(subject)
@@ -169,37 +171,42 @@ def store_attachments(rec: EmailMessage, atts: list[tuple[str, bytes]]) -> None:
 
 
 def poll_inbox(s: Session) -> int:
+    """Read new mail addressed to the AP alias only. Searches All Mail with
+    Gmail's own query syntax, so nothing outside <user>+<tag>@ is fetched."""
     cfg = get_settings()
     if not (cfg.mail_enabled and cfg.gmail_address and cfg.gmail_app_password):
         return 0
-    cur = s.execute(select(MailCursor).where(MailCursor.mailbox == cfg.gmail_address)).scalar_one_or_none()
+    box = "[Gmail]/All Mail"
+    key = f"{cfg.gmail_address}|{box}"
+    cur = s.execute(select(MailCursor).where(MailCursor.mailbox == key)).scalar_one_or_none()
     if cur is None:
-        cur = MailCursor(mailbox=cfg.gmail_address, last_uid=0)
+        cur = MailCursor(mailbox=key, last_uid=0)
         s.add(cur)
         s.flush()
+    # Replies typed in this same Gmail account carry the SENT label too, so it is not excluded.
+    query = f"to:{cfg.ap_address} -in:trash -in:spam"
     n = 0
     with imaplib.IMAP4_SSL("imap.gmail.com", 993) as im:
         im.login(cfg.gmail_address, cfg.gmail_app_password)
-        im.select("INBOX")
+        im.select(f'"{box}"', readonly=True)
         if cur.last_uid == 0:
-            # first run: start from now, do not replay the whole mailbox
+            # first run: start from now, do not replay older mail
             typ, data = im.uid("search", None, "ALL")
             uids = [int(x) for x in (data[0] or b"").split()]
-            cur.last_uid = max(uids) if uids else 0
+            cur.last_uid = max(uids) if uids else 1
             return 0
-        typ, data = im.uid("search", None, f"UID {cur.last_uid + 1}:*")
+        typ, data = im.uid("search", None, f"UID {cur.last_uid + 1}:*", "X-GM-RAW", f'"{query}"')
         for uid in sorted(int(x) for x in (data[0] or b"").split()):
             if uid <= cur.last_uid:
                 continue
-            typ, msgdata = im.uid("fetch", str(uid), "(RFC822)")
-            raw = msgdata[0][1] if msgdata and msgdata[0] else None
+            typ, msgdata = im.uid("fetch", str(uid), "(BODY.PEEK[])")
+            raw = msgdata[0][1] if msgdata and isinstance(msgdata[0], tuple) else None
             cur.last_uid = uid
             if not raw:
                 continue
             try:
-                handle_inbound(s, raw)
-                n += 1
+                if handle_inbound(s, raw):
+                    n += 1
             except Exception:
                 log.exception("failed to handle inbound uid %s", uid)
     return n
-

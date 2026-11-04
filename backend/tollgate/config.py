@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     model_reasoning: str = "glm-5.3"
     model_safety: str = "nemotron-3.5-content-safety"
     llm_timeout_s: float = 120.0
+    # Hard ceiling on inference spend (USD, all time). Above it the agent stops
+    # calling models and uses the text-layer reader and rule-based planner.
+    inference_budget_usd: float = 25.0
 
     # Vultr Object Storage (S3-compatible). Empty endpoint -> local filesystem.
     s3_endpoint: str = ""
@@ -28,6 +31,10 @@ class Settings(BaseSettings):
     gmail_app_password: str = ""
     mail_poll_interval_s: int = 30
     mail_enabled: bool = False
+    # Everything Tollgate sends or reads uses plus-addresses with this tag, so a
+    # personal Gmail can host the demo: the agent only ever reads mail sent to
+    # <user>+<tag>@..., never the rest of the inbox.
+    mail_tag: str = "tollgate"
 
     # Agent policy
     price_tolerance_pct: float = 2.0
@@ -40,6 +47,18 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     max_uploads_per_hour: int = 30
     cors_origins: str = "http://localhost:3000"
+
+
+    def alias(self, suffix: str = "") -> str:
+        """<user>+<tag>[-suffix]@domain for the configured mailbox."""
+        if not self.gmail_address or "@" not in self.gmail_address:
+            return ""
+        user, domain = self.gmail_address.split("@", 1)
+        return f"{user.split('+')[0]}+{self.mail_tag}{('-' + suffix) if suffix else ''}@{domain}"
+
+    @property
+    def ap_address(self) -> str:
+        return self.alias() or "ap@halden.example.com"
 
 
 @lru_cache

@@ -287,3 +287,15 @@ class MailCursor(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     mailbox: Mapped[str] = mapped_column(String(200))
     last_uid: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class InferenceSpend(Base):
+    """Running total of model usage, checked before every call."""
+
+    __tablename__ = "inference_spend"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    model: Mapped[str] = mapped_column(String(80), unique=True)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0))
