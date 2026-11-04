@@ -6,7 +6,7 @@ Tollgate reads vendor invoices as they arrive in the AP inbox, checks each one a
 
 Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering the Future of Work: finance and procurement). Everything runs on Vultr.
 
-- Live demo: `https://<deployment-host>` (see [Deploying](#deploying-on-vultr))
+- Live demo: https://45.32.218.92.sslip.io
 - Video: _link_
 - Slides: _link_
 
