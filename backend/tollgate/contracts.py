@@ -149,7 +149,8 @@ def apply_terms(
                     out.append(Recovery(
                         "VOLUME_PRICE", f"Line {ln.position} misses the contract volume price",
                         f"{ln.quantity.normalize():f} x {p['sku']} qualifies for {agreed:,.2f} per unit under {t.contract_title}; "
-                        f"billed {ln.unit_price:,.2f}. Owed back: {over:,.2f}" + (" including tax." if tax_rate else "."),
+                        f"billed {ln.unit_price:,.2f}. Owed back: {over:,.2f}"
+                        + (f" ({ln.quantity.normalize():f} x {ln.unit_price - agreed:,.2f} plus {tax_rate * 100:.4g}% sales tax charged on it)." if tax_rate else "."),
                         over, {**ev, "line": ln.position, "billed": str(ln.unit_price), "agreed": str(agreed)},
                     ))
         elif t.kind == "price_cap":
@@ -164,7 +165,8 @@ def apply_terms(
                     out.append(Recovery(
                         "PRICE_CAP", f"Line {ln.position} is above the contract price cap",
                         f"{ln.sku}: contract price {Decimal(str(base)):,.2f}, increases capped at {p['max_increase_pct']}% "
-                        f"(ceiling {ceiling:,.2f}); billed {ln.unit_price:,.2f}. Owed back: {over:,.2f}.",
+                        f"(ceiling {ceiling:,.2f}); billed {ln.unit_price:,.2f}. Owed back: {over:,.2f}"
+                        + (f" ({ln.quantity.normalize():f} x {ln.unit_price - ceiling:,.2f} plus {tax_rate * 100:.4g}% sales tax charged on it)." if tax_rate else "."),
                         over, {**ev, "line": ln.position, "billed": str(ln.unit_price), "ceiling": str(ceiling)},
                     ))
         elif t.kind == "sla_credit" and invoice_date is not None:
@@ -182,7 +184,8 @@ def apply_terms(
                 out.append(Recovery(
                     "SLA_CREDIT", f"Service credit owed for {period}",
                     f"Measured availability in {period} was {measured}% against a {p['commitment_pct']}% commitment, "
-                    f"which earns a {tier['credit_pct']}% credit on {base:,.2f} of service charges. Owed back: {credit:,.2f}.",
+                    f"which earns a {tier['credit_pct']}% credit on {base:,.2f} of service charges. Owed back: {credit:,.2f}"
+                    + (f" including {tax_rate * 100:.4g}% sales tax." if tax_rate else "."),
                     credit, {**ev, "period": period, "measured": str(measured), "credit_pct": tier["credit_pct"]},
                 ))
     return out

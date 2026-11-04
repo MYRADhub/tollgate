@@ -30,6 +30,7 @@ class BudgetExceeded(LLMError):
 PRICE_PER_TOKEN = {
     "glm-5.3": 0.000003,
     "glm-5.3-flash": 0.00000035,
+    "mimo-v2.6-pro": 0.000003,
     "qwen3.8-27b": 0.000001,
     "qwen3.8-flash-next": 0.0000002,
     "deepseek-v4.1-flash-1017": 0.0000006,

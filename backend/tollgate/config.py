@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # safe; without thinking a plan takes ~2s instead of 10-40s and never
     # exhausts its token budget before answering.
     reasoning_thinking: bool = False
+    # A different model from the planner, so the second opinion is independent.
+    model_critic: str = "glm-5.3-flash"
     model_safety: str = "nemotron-3.5-content-safety"
     llm_timeout_s: float = 120.0
     # Hard ceiling on inference spend (USD, all time). Above it the agent stops

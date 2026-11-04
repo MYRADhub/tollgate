@@ -134,8 +134,22 @@ def approvals_for(s: Session, inv: Invoice) -> list[Approval]:
     return list(s.execute(select(Approval).where(Approval.invoice_id == inv.id, Approval.kind == "payment")).scalars())
 
 
-def payment_approved(s: Session, inv: Invoice) -> bool:
+RANK = {Role.clerk: 0, Role.controller: 1, Role.cfo: 2}
+
+
+def needed_role(inv: Invoice) -> Role | None:
+    """Approval the payment needs: by amount, raised (never lowered) by the critic."""
     need = required_role(inv.total or Decimal(0))
+    floor = (inv.agent_state or {}).get("min_role")
+    if floor:
+        f = Role(floor)
+        if need is None or RANK[f] > RANK[need]:
+            need = f
+    return need
+
+
+def payment_approved(s: Session, inv: Invoice) -> bool:
+    need = needed_role(inv)
     if need is None:
         return True
     rank = {Role.clerk: 0, Role.controller: 1, Role.cfo: 2}
@@ -183,7 +197,7 @@ INVOICE {inv.number} (record {inv.id}), status {inv.status.value}
   dated {inv.invoice_date}, due {inv.due_date}, {inv.currency} subtotal {_money(inv.subtotal)} tax {_money(inv.tax)} total {_money(inv.total)}
   lines:
 {lines}
-  approval needed for amount: {(required_role(inv.total or Decimal(0)) or 'none (auto-pay)')}
+  approval needed: {(needed_role(inv) or 'none (auto-pay)')}
   vendor's earlier blocking findings: {vendor_history}
 
 FINDINGS (from deterministic controls):
@@ -259,7 +273,7 @@ def plan_rule_based(s: Session, inv: Invoice, trigger: str, extra: str | None, d
 
 
 def clean_actions(s: Session, inv: Invoice) -> list[dict]:
-    need = required_role(inv.total or Decimal(0))
+    need = needed_role(inv)
     if need and not payment_approved(s, inv):
         return [{"type": "request_approval", "role": need.value,
                  "reason": f"{inv.vendor.name if inv.vendor else 'Vendor'} invoice {inv.number} for {_money(inv.total)} passes every control and is above the "
@@ -282,7 +296,7 @@ def clean_summary(s: Session, inv: Invoice) -> str:
         if old is not None and old.total is not None and inv.total is not None:
             diff = old.total - inv.total
             parts.append(f"It replaces {old.number}" + (f", removing the {_money(diff)} overcharge." if diff > 0 else "."))
-    need = required_role(inv.total or Decimal(0))
+    need = needed_role(inv)
     if need and not payment_approved(s, inv):
         parts.append(f"It is above the ${get_settings().auto_pay_limit:,.0f} auto-pay limit, so it goes to the {need.value} before payment.")
     else:
@@ -305,7 +319,7 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
         if not v or not v.bank_account:
             raise Denied("schedule_payment refused: no verified vendor bank account")
         if not payment_approved(s, inv):
-            raise Denied(f"schedule_payment refused: needs {required_role(inv.total or Decimal(0)).value} approval first")
+            raise Denied(f"schedule_payment refused: needs {needed_role(inv).value} approval first")
         from .contracts import early_pay
         from .pipeline import vendor_terms
 
@@ -356,10 +370,13 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
 
     if t == "request_approval":
         role = Role(a.get("role", "controller"))
-        need = required_role(inv.total or Decimal(0)) or Role.controller
+        need = needed_role(inv) or Role.controller
         if {Role.controller: 1, Role.cfo: 2}.get(role, 0) < {Role.controller: 1, Role.cfo: 2}[need]:
             role = need
         pending = [x for x in approvals_for(s, inv) if x.decision is None]
+        for x in pending:
+            if RANK[x.required_role] < RANK[role]:
+                x.required_role, x.reason = role, str(a.get("reason", ""))[:2000]  # the critic raised the bar
         if not pending:
             s.add(Approval(invoice_id=inv.id, kind="payment", required_role=role, reason=str(a.get("reason", ""))[:2000]))
         inv.status = InvoiceStatus.awaiting_approval
@@ -408,6 +425,35 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
     raise Denied(f"unknown action type {t!r}")
 
 
+def critic_gate(s: Session, inv: Invoice, actions: list[dict]) -> list[dict]:
+    """Before a payment is scheduled or sent for approval, get a second opinion
+    when there is money judgment involved (deductions, or a large amount)."""
+    from . import critic
+    from .models import CriticReview
+
+    money = [a for a in actions if a.get("type") in ("schedule_payment", "request_approval")]
+    if not money or open_blocking(inv) or not critic.needs_review(inv):
+        return actions
+    proposal = critic.proposal_for(inv)
+    last = s.execute(select(CriticReview).where(CriticReview.invoice_id == inv.id).order_by(CriticReview.id.desc())).scalars().first()
+    if last is not None and last.proposal == proposal:
+        rv = last
+    else:
+        rv = critic.review(s, inv) if get_settings().inference_api_key else critic.offline_review(s, inv)
+    floor = {"disagree": Role.cfo, "concerns": Role.controller, "unavailable": Role.controller}.get(rv.verdict)
+    if floor is None:
+        return actions
+    current = (inv.agent_state or {}).get("min_role")
+    if not current or RANK[floor] > RANK[Role(current)]:
+        inv.agent_state = {**inv.agent_state, "min_role": floor.value}
+    if payment_approved(s, inv):
+        return actions
+    reason = f"Critic {rv.verdict}: {rv.summary}"
+    out = [a for a in actions if a.get("type") not in ("schedule_payment", "request_approval")]
+    out.append({"type": "request_approval", "role": needed_role(inv).value, "reason": reason})
+    return out
+
+
 def decide(s: Session, inv: Invoice, trigger: str, extra: str | None = None) -> None:
     settings = get_settings()
     inv.status = InvoiceStatus.deciding
@@ -429,6 +475,7 @@ def decide(s: Session, inv: Invoice, trigger: str, extra: str | None = None) -> 
         if plan.get("summary"):
             inv.summary = str(plan["summary"])[:2000]
         actions = [a for a in (plan.get("actions") or []) if isinstance(a, dict)][: settings.agent_max_steps]
+        actions = critic_gate(s, inv, actions)
         audit.record(
             s, actor="agent", kind="plan", invoice_id=inv.id,
             summary=f"Plan ({trigger}): " + (", ".join(a.get("type", "?") for a in actions) or "no actions"),
