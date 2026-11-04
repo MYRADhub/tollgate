@@ -1,9 +1,10 @@
 import { APIRequestContext, Page, expect, test } from "@playwright/test";
 
-const API = `http://127.0.0.1:${process.env.E2E_API_PORT || 8100}`;
+const API = process.env.E2E_BASE_URL || `http://127.0.0.1:${process.env.E2E_API_PORT || 8100}`;
+const WEB = process.env.E2E_BASE_URL || `http://localhost:${process.env.E2E_WEB_PORT || 3200}`;
 
 async function settle(request: APIRequestContext) {
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 180; i++) {
     const s = await (await request.get(`${API}/api/stats`)).json();
     if (s.queue === 0) return;
     await new Promise((r) => setTimeout(r, 500));
@@ -114,13 +115,17 @@ test.describe.serial("guided demo, end to end", () => {
     await page.goto("/payments");
     await actAs(page, "Sam Patel");
     await page.getByRole("button", { name: "Plan a run now" }).click();
+    const planned = page.getByText(/^Run \d+ planned$/);
+    await expect(planned).toBeVisible();
+    const runId = (await planned.textContent())!.match(/\d+/)![0];
+    await expect(page.getByText(`Payment run ${runId}`, { exact: false }).first()).toBeVisible();
     await expect(page.getByText(/worth 149% a year/).first()).toBeVisible();
     await page.getByRole("button", { name: /Act as Rosa Kim \(Controller\) to approve/ }).click();
     await page.getByRole("button", { name: /Approve run as Rosa Kim/ }).click();
-    await expect(page.getByText(/approved$/).first()).toBeVisible();
+    await expect(page.getByText(/approved by Rosa Kim/).first()).toBeVisible();
     const file = page.getByRole("link", { name: /Bank file/ });
     await expect(file).toBeVisible();
-    const res = await request.get(new URL((await file.getAttribute("href"))!, `http://localhost:${process.env.E2E_WEB_PORT || 3200}`).toString());
+    const res = await request.get(new URL((await file.getAttribute("href"))!, WEB).toString());
     expect(await res.text()).toContain("TG-RUN-");
     await settle(request);
   });

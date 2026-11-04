@@ -37,7 +37,14 @@ function RunCard({ run, reload }: { run: Run; reload: () => void }) {
       fb.toast("success", `Run ${run.id} approved`, "Payments are released; the bank file is ready to download.");
       reload();
     } catch (e) {
-      setErr((e as Error).message);
+      const msg = (e as Error).message;
+      if (/out of date|no proposed run/.test(msg)) {
+        fb.toast("info", "The run changed while you were looking", "New payments were scheduled, so the agent re-planned. Review the updated run.");
+        reload();
+      } else {
+        setErr(msg);
+        fb.toast("error", "Could not approve the run", msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -127,10 +134,12 @@ export default function PaymentsPage() {
   const { data: payments } = useData<Payment[]>("/api/payments");
   const { actor } = useActor();
   const [busy, setBusy] = useState(false);
+  const fb = useFeedback();
   const replan = async () => {
     setBusy(true);
     try {
-      await api("/api/payment-runs/plan", { method: "POST", json: actor });
+      const r = await api<{ id: number | null }>("/api/payment-runs/plan", { method: "POST", json: actor });
+      fb.toast("success", r.id ? `Run ${r.id} planned` : "Nothing to pay", r.id ? "Review it below." : "No approved invoices are waiting.");
       reload();
     } finally {
       setBusy(false);
