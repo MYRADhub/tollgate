@@ -45,6 +45,22 @@ function Nav() {
   );
 }
 
+function MobileNav() {
+  const path = usePathname();
+  return (
+    <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-1.5 md:hidden">
+      {NAV.map((n) => {
+        const active = n.href === "/" ? path === "/" || path.startsWith("/invoices") : path.startsWith(n.href);
+        return (
+          <Link key={n.href} href={n.href} className={cx("whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium", active ? "bg-slate-900 text-white" : "text-slate-600")}>
+            {n.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 function Dot({ on }: { on: boolean }) {
   return <span className={cx("h-1.5 w-1.5 rounded-full", on ? "bg-emerald-400" : "bg-slate-500")} />;
 }
@@ -129,6 +145,7 @@ export function Shell({ children }: { children: ReactNode }) {
               </Link>
               <LiveTicker />
             </div>
+            <MobileNav />
             <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 md:px-6">{children}</main>
           </div>
         </div>

@@ -69,8 +69,15 @@ echo "   $DB"
 echo "== Object Storage"
 OBJ=$(v GET "/object-storage?per_page=100" | jq -r --arg l "$LABEL-files" '.object_storages[] | select(.label==$l) | .id' | head -1)
 if [[ -z "$OBJ" ]]; then
-  CLUSTER=$(v GET /object-storage/clusters | jq -r --arg r "$REGION" '([.clusters[] | select(.region==$r and .deploy=="yes")] + [.clusters[] | select(.deploy=="yes")])[0].id')
-  OBJ=$(v POST /object-storage "$(jq -n --argjson c "$CLUSTER" --arg l "$LABEL-files" '{cluster_id:$c, label:$l}')" | jq -r .object_storage.id)
+  # Pick the cheapest tier offered by any cluster in the region (tiers differ per cluster).
+  BEST=""
+  for C in $(v GET /object-storage/clusters | jq -r --arg r "$REGION" '.clusters[] | select(.region==$r and .deploy=="yes") | .id'); do
+    T=$(v GET "/object-storage/clusters/$C/tiers" | jq -r --arg c "$C" '.tiers[] | "\(.price) \($c) \(.id)"')
+    BEST=$(printf '%s\n%s\n' "$BEST" "$T" | sed '/^$/d' | sort -n | head -1)
+  done
+  read -r PRICE CLUSTER TIER <<<"$BEST"
+  echo "   cluster $CLUSTER tier $TIER (\$$PRICE/mo)"
+  OBJ=$(v POST /object-storage "$(jq -n --argjson c "$CLUSTER" --argjson t "$TIER" --arg l "$LABEL-files" '{cluster_id:$c, tier_id:$t, label:$l}')" | jq -r .object_storage.id)
 fi
 echo "   $OBJ"
 
