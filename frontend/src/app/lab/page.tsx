@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { FileUp, FlaskConical, ShieldCheck, ShieldX, Swords } from "lucide-react";
 import { InvoiceRow, ago, api, money, useData } from "@/lib/api";
 import { Button, Card, Empty, Flag, StatusPill, cx } from "@/components/ui";
+import { useFeedback } from "@/components/Feedback";
 
 type Template = { key: string; name: string; technique: string; description: string; expected: string; editable: string | null; default_text: string | null };
 type Attempt = { group: string; template: string; name: string; technique: string; outcome: "caught" | "missed" | "pending"; created_at: string; invoices: (InvoiceRow & { outcome: string; checks: string[] })[] };
@@ -21,6 +22,7 @@ type Evals = {
 const SUITE: Record<string, string> = { attacks: "Attacks stopped before payment", inbox: "Demo inbox outcomes", contracts: "Contract terms read correctly", critic: "Critic verdicts" };
 
 function Launch({ t, onDone }: { t: Template; onDone: () => void }) {
+  const fb = useFeedback();
   const [text, setText] = useState(t.default_text || "");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -30,6 +32,7 @@ function Launch({ t, onDone }: { t: Template; onDone: () => void }) {
     setErr(null);
     try {
       await api("/api/lab/attack", { method: "POST", json: { template: t.key, text: t.editable ? text : undefined } });
+      fb.toast("info", `${t.name}: sent`, "It is going through the same pipeline as real mail. Watch the attempts list.");
       onDone();
     } catch (e) {
       setErr((e as Error).message);
@@ -108,6 +111,7 @@ function Scorecard({ e }: { e: Evals }) {
 }
 
 export default function LabPage() {
+  const fb = useFeedback();
   const { data: templates } = useData<Template[]>("/api/lab/templates");
   const { data: attempts, reload } = useData<Attempt[]>("/api/lab/attempts");
   const { data: evals } = useData<Evals>("/api/lab/evals");
@@ -122,9 +126,10 @@ export default function LabPage() {
       const fd = new FormData();
       fd.append("file", f[0]);
       await api("/api/lab/upload", { method: "POST", body: fd });
+      fb.toast("info", "Your PDF is in", "Watch the attempts list.");
       reload();
     } catch (e) {
-      alert((e as Error).message);
+      fb.toast("error", "Upload failed", (e as Error).message);
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";

@@ -13,6 +13,17 @@ export const PEOPLE: Actor[] = [
 
 export const ROLE_LABEL: Record<Role, string> = { clerk: "AP clerk", controller: "Controller", cfo: "CFO" };
 
+const RANK: Record<Role, number> = { clerk: 0, controller: 1, cfo: 2 };
+
+export function canApprove(actor: Role, required: Role) {
+  return RANK[actor] >= RANK[required];
+}
+
+/** The first demo person who can approve at this level. */
+export function personFor(required: Role): Actor {
+  return PEOPLE.find((p) => RANK[p.role] >= RANK[required]) || PEOPLE[PEOPLE.length - 1];
+}
+
 export class ApiError extends Error {}
 
 export async function api<T = unknown>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
@@ -53,7 +64,17 @@ export function ago(iso: string) {
 
 // ---- live updates: one EventSource for the app, a tick that bumps on every audit event
 type LiveCtx = { tick: number; last: AuditEvent[] };
-export type AuditEvent = { id: number; actor: string; kind: string; summary: string; invoice_id: string | null; created_at: string };
+export type AuditEvent = {
+  id: number;
+  actor: string;
+  kind: string;
+  summary: string;
+  invoice_id: string | null;
+  created_at: string;
+  number?: string | null;
+  vendor?: string | null;
+  lab?: boolean;
+};
 
 export const LiveContext = createContext<LiveCtx>({ tick: 0, last: [] });
 
@@ -75,9 +96,15 @@ export function useLiveFeed(): LiveCtx {
       };
     };
     connect();
+    // Fallback refresh: proxies that buffer server-sent events (and sleeping laptops)
+    // must not leave the page stale. Cheap: a handful of small JSON reads.
+    const beat = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") setState((s) => ({ ...s, tick: s.tick + 1 }));
+    }, 5000);
     return () => {
       closed = true;
       clearTimeout(retry);
+      clearInterval(beat);
       es?.close();
     };
   }, []);
@@ -308,3 +335,37 @@ export type Stats = {
   scheduled_total: number;
   queue: number;
 };
+
+// ---- guided demo progress (per viewer, best effort)
+const SEEN_KEY = "tollgate.seen";
+const seenListeners = new Set<() => void>();
+
+function readSeen(): string {
+  try {
+    return localStorage.getItem(SEEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function markSeen(key: string) {
+  try {
+    const cur = new Set(readSeen().split(",").filter(Boolean));
+    if (cur.has(key)) return;
+    cur.add(key);
+    localStorage.setItem(SEEN_KEY, [...cur].join(","));
+    seenListeners.forEach((l) => l());
+  } catch {}
+}
+
+export function useSeen(): Set<string> {
+  const raw = useSyncExternalStore(
+    (cb) => {
+      seenListeners.add(cb);
+      return () => seenListeners.delete(cb);
+    },
+    readSeen,
+    () => "",
+  );
+  return new Set(raw.split(",").filter(Boolean));
+}

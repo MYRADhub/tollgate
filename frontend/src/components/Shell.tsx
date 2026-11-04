@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useContext, useEffect, useState } from "react";
 import { Activity, BookCheck, Building2, ScrollText, FlaskConical, Gauge, Inbox, Landmark, Network, ShieldCheck } from "lucide-react";
 import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, api, useData, useLiveFeed, useStoredActor } from "@/lib/api";
+import { FeedbackProvider } from "./Feedback";
 import { Logo } from "./Logo";
 import { cx } from "./ui";
 
@@ -111,7 +112,7 @@ function Who() {
 
 function LiveTicker() {
   const { last } = useContext(LiveContext);
-  const ev = last[0];
+  const ev = last.find((e) => !e.lab);
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-slate-500">
       <Activity className={cx("h-3.5 w-3.5 shrink-0", ev ? "text-emerald-500" : "text-slate-400")} />
@@ -126,6 +127,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <LiveContext.Provider value={live}>
       <ActorContext.Provider value={{ actor, setActor }}>
+        <FeedbackProvider>
         <div className="flex min-h-screen bg-slate-50">
           <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col gap-5 bg-slate-950 px-3 py-4 md:flex">
             <Link href="/" className="flex items-center gap-2 px-1.5 text-white">
@@ -152,6 +154,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 md:px-6">{children}</main>
           </div>
         </div>
+        </FeedbackProvider>
       </ActorContext.Provider>
     </LiveContext.Provider>
   );

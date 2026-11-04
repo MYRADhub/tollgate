@@ -2,27 +2,32 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ReactNode, useState } from "react";
-import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, PackageCheck, Scale, ShieldAlert, ShieldCheck, User, XCircle } from "lucide-react";
-import { Approval, CriticReview, InvoiceDetail, ROLE_LABEL, api, money, useActor, useData } from "@/lib/api";
+import { ReactNode, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, PackageCheck, Scale, ShieldAlert, ShieldCheck, User } from "lucide-react";
+import { CriticReview, InvoiceDetail, ROLE_LABEL, api, markSeen, money, useActor, useData } from "@/lib/api";
+import { BankChangeReview, PaymentApproval } from "@/components/ApprovalControls";
+import { useFeedback } from "@/components/Feedback";
 import { Button, Card, Empty, Flag, Mono, StatusPill, cx, maskAcct } from "@/components/ui";
 
 function useAct(reload: () => void) {
+  const fb = useFeedback();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const run = async (fn: () => Promise<unknown>) => {
+  const run = async (fn: () => Promise<unknown>, ok?: string, okBody?: string) => {
     setBusy(true);
     setErr(null);
     try {
       await fn();
+      if (ok) fb.toast("success", ok, okBody);
       reload();
     } catch (e) {
       setErr((e as Error).message);
+      fb.toast("error", "That did not work", (e as Error).message);
     } finally {
       setBusy(false);
     }
   };
-  return { busy, err, run };
+  return { busy, err, run, fb };
 }
 
 function Row({ k, v }: { k: string; v: ReactNode }) {
@@ -108,7 +113,7 @@ function Findings({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
                           variant="primary"
                           disabled={busy || !why.trim()}
                           onClick={() =>
-                            run(() => api(`/api/findings/${f.id}/resolve`, { method: "POST", json: { ...actor, justification: why } })).then(() => {
+                            run(() => api(`/api/findings/${f.id}/resolve`, { method: "POST", json: { ...actor, justification: why } }), `${f.code.replaceAll("_", " ").toLowerCase()} cleared`).then(() => {
                               setClearing(null);
                               setWhy("");
                             })
@@ -185,52 +190,9 @@ function ThreeWay({ inv }: { inv: InvoiceDetail }) {
   );
 }
 
-function ApprovalBox({ a, inv, reload }: { a: Approval; inv: InvoiceDetail; reload: () => void }) {
-  const { actor } = useActor();
-  const { busy, err, run } = useAct(reload);
-  const [callback, setCallback] = useState("");
-  const decide = (decision: "approved" | "rejected") =>
-    run(() =>
-      api(`/api/approvals/${a.id}/decide`, {
-        method: "POST",
-        json: { ...actor, decision, callback_note: a.kind === "bank_change" && callback ? callback : undefined },
-      }),
-    );
-  if (a.decision)
-    return (
-      <div className="flex items-center gap-2 text-xs text-slate-600">
-        {a.decision === "approved" ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-rose-600" />}
-        {a.decision} by {a.decided_by} ({a.decided_role && ROLE_LABEL[a.decided_role]})
-      </div>
-    );
-  return (
-    <div className="space-y-2">
-      <div className="text-[13px] text-slate-700">{a.reason}</div>
-      {a.kind === "bank_change" && !inv.bank_change?.callback_note && (
-        <input
-          value={callback}
-          onChange={(e) => setCallback(e.target.value)}
-          placeholder="Callback record: number dialled (from vendor master), who confirmed"
-          className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"
-        />
-      )}
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant="good" disabled={busy} onClick={() => decide("approved")}>
-          Approve as {actor.user}
-        </Button>
-        <Button size="sm" variant="danger" disabled={busy} onClick={() => decide("rejected")}>
-          Reject
-        </Button>
-        <span className="text-[11px] text-slate-500">needs {ROLE_LABEL[a.required_role]}</span>
-      </div>
-      {err && <div className="rounded bg-rose-50 px-2 py-1 text-xs text-rose-700">{err}</div>}
-    </div>
-  );
-}
-
 function Actions({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
   const { actor } = useActor();
-  const { busy, err, run } = useAct(reload);
+  const { busy, err, run, fb } = useAct(reload);
   const pending = inv.approvals.filter((a) => !a.decision);
   const payAppr = inv.approvals.filter((a) => a.kind === "payment");
   const bankAppr = inv.approvals.filter((a) => a.kind === "bank_change");
@@ -238,7 +200,7 @@ function Actions({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
   const canReplyAsVendor = inv.status === "awaiting_vendor" && inv.emails.some((e) => e.direction === "out");
   const open = !["scheduled", "paid", "rejected", "superseded"].includes(inv.status);
   return (
-    <Card title="Decisions">
+    <Card title={inv.approvals.some((a) => !a.decision) ? "Waiting for you" : "Decisions"} className={inv.approvals.some((a) => !a.decision) ? "ring-2 ring-indigo-200" : undefined}>
       <div className="space-y-4">
         {inv.payment && (
           <div className="rounded-lg bg-emerald-50 p-3 text-[13px] text-emerald-900 ring-1 ring-emerald-200">
@@ -268,44 +230,25 @@ function Actions({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
           <div>
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payment approval</div>
             {payAppr.map((a) => (
-              <ApprovalBox key={a.id} a={a} inv={inv} reload={reload} />
+              <PaymentApproval key={a.id} a={a} onDone={reload} />
             ))}
           </div>
         )}
         {bankAppr.length > 0 && inv.bank_change && (
           <div>
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bank change request (two people + callback)</div>
-            <div className="mb-2 grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-md bg-slate-50 p-2 ring-1 ring-slate-200">
-                <div className="text-slate-500">On file (verified)</div>
-                <Mono>{inv.bank_change.old_account}</Mono>
-              </div>
-              <div className="rounded-md bg-rose-50 p-2 ring-1 ring-rose-200">
-                <div className="text-rose-700">Requested by document</div>
-                <Mono className="text-rose-900">{inv.bank_change.new_account}</Mono>
-                <div className="text-[11px] text-rose-700">{inv.bank_change.new_bank_name}</div>
-              </div>
-            </div>
-            {inv.bank_change.callback_note && <div className="mb-2 text-xs text-slate-600">Callback: {inv.bank_change.callback_note}</div>}
-            <div className="space-y-3">
-              {bankAppr.map((a, i) => (
-                <div key={a.id}>
-                  <div className="mb-1 text-[11px] text-slate-500">Approver {i + 1}</div>
-                  <ApprovalBox a={a} inv={inv} reload={reload} />
-                </div>
-              ))}
-            </div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bank change review: callback and two people</div>
+            <BankChangeReview approvals={bankAppr} change={inv.bank_change} onDone={reload} />
           </div>
         )}
         {open && (
           <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
             {notReceived && (
-              <Button size="sm" disabled={busy} onClick={() => run(() => api(`/api/invoices/${inv.id}/receipt`, { method: "POST", json: { user: "Receiving dock", role: "clerk" } }))}>
+              <Button size="sm" disabled={busy} onClick={() => run(() => api(`/api/invoices/${inv.id}/receipt`, { method: "POST", json: { user: "Receiving dock", role: "clerk" } }), "Goods receipt logged", "The agent is re-checking the invoice.")}>
                 <PackageCheck className="h-3.5 w-3.5" /> Log goods received
               </Button>
             )}
             {canReplyAsVendor && (
-              <Button size="sm" disabled={busy} onClick={() => run(() => api(`/api/demo/vendor-reply/${inv.id}`, { method: "POST" }))}>
+              <Button size="sm" disabled={busy} onClick={() => run(() => api(`/api/demo/vendor-reply/${inv.id}`, { method: "POST" }), "The vendor replied", "Their email is in the AP inbox; the agent is reading it.")}>
                 <Mail className="h-3.5 w-3.5" /> Play the vendor: reply
               </Button>
             )}
@@ -313,9 +256,9 @@ function Actions({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
               size="sm"
               variant="danger"
               disabled={busy}
-              onClick={() => {
-                const reason = prompt("Reason for rejecting this invoice?");
-                if (reason) run(() => api(`/api/invoices/${inv.id}/reject`, { method: "POST", json: { ...actor, reason } }));
+              onClick={async () => {
+                const reason = await fb.prompt({ title: `Reject ${inv.number}?`, body: "It will not be paid. The reason goes into the audit trail.", placeholder: "Reason", confirmLabel: "Reject invoice", danger: true });
+                if (reason) run(() => api(`/api/invoices/${inv.id}/reject`, { method: "POST", json: { ...actor, reason } }), "Invoice rejected");
               }}
             >
               Reject invoice
@@ -498,9 +441,16 @@ function DocumentPanel({ inv }: { inv: InvoiceDetail }) {
 export default function InvoicePage() {
   const { id } = useParams<{ id: string }>();
   const { data: inv, error, reload } = useData<InvoiceDetail>(`/api/invoices/${id}`);
+  useEffect(() => {
+    if (inv?.number) markSeen(inv.number);
+  }, [inv?.number]);
   if (error) return <Empty>{error}</Empty>;
   if (!inv) return <Empty>Loading...</Empty>;
   const busy = ["received", "extracting", "checking", "deciding"].includes(inv.status);
+  const actionable =
+    inv.approvals.some((a) => !a.decision) ||
+    (inv.status === "awaiting_vendor" && inv.emails.some((e) => e.direction === "out")) ||
+    inv.findings.some((f) => f.code === "QTY_NOT_RECEIVED" && !f.resolved);
   return (
     <div className="space-y-4">
       <Link href="/" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800">
@@ -546,10 +496,11 @@ export default function InvoicePage() {
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-4">
+          {actionable && <Actions inv={inv} reload={reload} />}
           <Findings inv={inv} reload={reload} />
           <ThreeWay inv={inv} />
           <CriticCard reviews={inv.critic} />
-          <Actions inv={inv} reload={reload} />
+          {!actionable && <Actions inv={inv} reload={reload} />}
           <Emails inv={inv} />
         </div>
         <div className="space-y-4">

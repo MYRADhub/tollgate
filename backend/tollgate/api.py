@@ -7,7 +7,7 @@ import json
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
@@ -81,7 +81,11 @@ def _rate_limit() -> None:
 def j(x):
     if isinstance(x, Decimal):
         return float(x)
-    if isinstance(x, (date, datetime)):
+    if isinstance(x, datetime):
+        if x.tzinfo is None:  # SQLite drops the zone; every timestamp here is UTC
+            x = x.replace(tzinfo=timezone.utc)
+        return x.isoformat()
+    if isinstance(x, date):
         return x.isoformat()
     if hasattr(x, "value"):
         return x.value
@@ -353,12 +357,34 @@ def payments(s: Session = Depends(get_session)):
     return out
 
 
+def _lab_ids():
+    return select(Invoice.id).where(Invoice.source == "lab")
+
+
 @app.get("/api/audit")
-def audit_log(invoice_id: str | None = None, limit: int = Query(200, le=1000), s: Session = Depends(get_session)):
+def audit_log(invoice_id: str | None = None, limit: int = Query(200, le=1000), scope: str = "all", s: Session = Depends(get_session)):
     q = select(AuditEvent).order_by(AuditEvent.id.desc()).limit(limit)
     if invoice_id:
         q = q.where(AuditEvent.invoice_id == invoice_id)
-    return [ser(e, ["id", "actor", "kind", "summary", "invoice_id", "created_at", "hash", "prev_hash"]) for e in s.execute(q).scalars()]
+    if scope == "main":
+        q = q.where((AuditEvent.invoice_id.is_(None)) | AuditEvent.invoice_id.not_in(_lab_ids()))
+    out = []
+    rows = list(s.execute(q).scalars())
+    labels = _invoice_labels(s, {e.invoice_id for e in rows if e.invoice_id})
+    for e in rows:
+        d = ser(e, ["id", "actor", "kind", "summary", "invoice_id", "created_at", "hash", "prev_hash"])
+        d.update(labels.get(e.invoice_id, {}))
+        out.append(d)
+    return out
+
+
+def _invoice_labels(s: Session, ids: set) -> dict:
+    if not ids:
+        return {}
+    out = {}
+    for inv in s.execute(select(Invoice).where(Invoice.id.in_(ids))).scalars():
+        out[inv.id] = {"number": inv.number, "vendor": inv.vendor.name if inv.vendor else inv.vendor_name_raw, "lab": inv.source == "lab"}
+    return out
 
 
 @app.get("/api/audit/verify")
@@ -381,9 +407,11 @@ async def events(since: int | None = None):
         while True:
             with SessionLocal() as s:
                 rows = list(s.execute(select(AuditEvent).where(AuditEvent.id > last).order_by(AuditEvent.id).limit(100)).scalars())
-            for e in rows:
+                labels = _invoice_labels(s, {e.invoice_id for e in rows if e.invoice_id})
+                payloads = [{**ser(e, ["id", "actor", "kind", "summary", "invoice_id", "created_at"]), **labels.get(e.invoice_id, {})} for e in rows]
+            for e, d in zip(rows, payloads):
                 last = e.id
-                yield {"event": "audit", "id": str(e.id), "data": json.dumps(ser(e, ["id", "actor", "kind", "summary", "invoice_id", "created_at"]))}
+                yield {"event": "audit", "id": str(e.id), "data": json.dumps(d)}
             await asyncio.sleep(1.0)
 
     return EventSourceResponse(gen(), ping=15)

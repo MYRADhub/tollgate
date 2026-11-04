@@ -1,0 +1,199 @@
+import { APIRequestContext, Page, expect, test } from "@playwright/test";
+
+const API = `http://127.0.0.1:${process.env.E2E_API_PORT || 8100}`;
+
+async function settle(request: APIRequestContext) {
+  for (let i = 0; i < 60; i++) {
+    const s = await (await request.get(`${API}/api/stats`)).json();
+    if (s.queue === 0) return;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("agent did not settle");
+}
+
+async function invoiceId(request: APIRequestContext, number: string) {
+  const rows = await (await request.get(`${API}/api/invoices`)).json();
+  const r = rows.find((x: { number: string }) => x.number === number);
+  if (!r) throw new Error(`no invoice ${number}`);
+  return r.id as string;
+}
+
+async function actAs(page: Page, name: string) {
+  await page.getByRole("button", { name: new RegExp(`^${name}`) }).first().click();
+}
+
+test.describe.serial("guided demo, end to end", () => {
+  test.beforeAll(async ({ request }) => {
+    await request.post(`${API}/api/demo/reset`);
+  });
+
+  test("dashboard starts empty and the guided demo loads the inbox", async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.getByText("Guided demo: seven things to try").first()).toBeVisible();
+    await expect(page.getByText("No invoices yet").first()).toBeVisible();
+    await page.getByRole("button", { name: "Load the demo inbox" }).click();
+    await expect(page.getByText("Ten invoices are in the AP inbox").first()).toBeVisible();
+    await settle(request);
+    await expect(page.getByRole("link", { name: /Polaris Network Services/ }).first()).toBeVisible();
+    await expect(page.getByText("1 of 7 done").first()).toBeVisible();
+    await expect(page.getByText("Agent activity").first()).toBeVisible();
+  });
+
+  test("contract recovery: the SLA credit is deducted with the clause and checked by the critic", async ({ page, request }) => {
+    await page.goto(`/invoices/${await invoiceId(request, "PNS-55120")}`);
+    await expect(page.getByText("Service credit owed for 2026-10").first()).toBeVisible();
+    await expect(page.getByText("$975.00 owed to us").first()).toBeVisible();
+    await expect(page.getByText(/falls below 99.5%, 15%/).first()).toBeVisible();
+    await expect(page.getByText("Second opinion from the critic").first()).toBeVisible();
+    await expect(page.getByText("Owed to us under contract").first()).toBeVisible();
+    await expect(page.getByText(/Remittance advice: invoice PNS-55120/).first()).toBeVisible();
+  });
+
+  test("hidden instructions are lifted out of the PDF and quarantined", async ({ page, request }) => {
+    await page.goto(`/invoices/${await invoiceId(request, "BIS-2090")}`);
+    await expect(page.getByText("Document contains instructions aimed at an AI").first()).toBeVisible();
+    await expect(page.getByText(/ignore all previous instructions/).first()).toBeVisible();
+    await page.getByRole("button", { name: "What the agent read" }).click();
+    await expect(page.getByText("Text in the file that no person can see on the page").first()).toBeVisible();
+    await expect(page.getByText("Held").first()).toBeVisible();
+  });
+
+  test("a clerk cannot approve the controller's payment; the controller can", async ({ page, request }) => {
+    await page.goto(`/invoices/${await invoiceId(request, "OC-7720")}`);
+    await actAs(page, "Sam Patel");
+    await expect(page.getByText("Waiting for you").first()).toBeVisible();
+    await expect(page.getByText("Volume price owed").first()).toBeVisible();
+    await page.getByRole("button", { name: /Act as Rosa Kim \(Controller\)/ }).click();
+    await page.getByRole("button", { name: "Approve as Rosa Kim" }).click();
+    await expect(page.getByText("Payment approved").first()).toBeVisible();
+    await settle(request);
+    await expect(page.getByText("Payment scheduled").first()).toBeVisible();
+    await expect(page.getByText("-$1,416.00").first()).toBeVisible();
+  });
+
+  test("playing the vendor: a corrected invoice is re-read, re-checked and paid", async ({ page, request }) => {
+    await page.goto(`/invoices/${await invoiceId(request, "BIS-2077")}`);
+    await expect(page.getByText("Line 1 billed above the PO price").first()).toBeVisible();
+    await page.getByRole("button", { name: "Play the vendor: reply" }).click();
+    await expect(page.getByText("The vendor replied").first()).toBeVisible();
+    await settle(request);
+    await page.getByRole("link", { name: /Replaced by the vendor.s corrected invoice/ }).click();
+    await expect(page.getByText("Payment scheduled").first()).toBeVisible();
+    await expect(page.getByText(/removing the 118.80 overcharge/).first()).toBeVisible();
+  });
+
+  test("goods arriving releases a held invoice, net of the price cap", async ({ page, request }) => {
+    await page.goto(`/invoices/${await invoiceId(request, "GE-5561")}`);
+    await page.getByRole("button", { name: "Log goods received" }).click();
+    await expect(page.getByText("Goods receipt logged").first()).toBeVisible();
+    await settle(request);
+    await page.reload();
+    await expect(page.getByText("Payment scheduled").first()).toBeVisible();
+    await expect(page.getByText("-$43.20").first()).toBeVisible();
+  });
+
+  test("a bank change needs a callback and two different people", async ({ page, request }) => {
+    await page.goto("/approvals");
+    await actAs(page, "Rosa Kim");
+    const card = page.locator("li", { hasText: "Bank change for Vantage Cloud Services" });
+    await expect(card).toBeVisible();
+    await expect(card.getByRole("button", { name: "Record callback and approve" })).toBeDisabled();
+    await card.getByPlaceholder(/Callback record/).fill("Called 415-555-0100 from the vendor master; CFO Ana Ruiz confirmed the change");
+    await card.getByRole("button", { name: "Record callback and approve" }).click();
+    await expect(page.getByText("First approval recorded").first()).toBeVisible();
+    await expect(card.getByText("A different person must approve this.")).toBeVisible();
+    await card.getByRole("button", { name: /Act as Theo Grant/ }).click();
+    await card.getByRole("button", { name: "Give second approval" }).click();
+    await expect(page.getByText("Bank change approved").first()).toBeVisible();
+    await settle(request);
+    await page.goto(`/invoices/${await invoiceId(request, "VCS-10488")}`);
+    await expect(page.getByText("Payment scheduled").first()).toBeVisible();
+  });
+
+  test("the payment run takes the best discount and the controller releases it", async ({ page, request }) => {
+    await page.goto("/payments");
+    await actAs(page, "Sam Patel");
+    await page.getByRole("button", { name: "Plan a run now" }).click();
+    await expect(page.getByText(/worth 149% a year/).first()).toBeVisible();
+    await page.getByRole("button", { name: /Act as Rosa Kim \(Controller\) to approve/ }).click();
+    await page.getByRole("button", { name: /Approve run as Rosa Kim/ }).click();
+    await expect(page.getByText(/approved$/).first()).toBeVisible();
+    const file = page.getByRole("link", { name: /Bank file/ });
+    await expect(file).toBeVisible();
+    const res = await request.get(new URL((await file.getAttribute("href"))!, `http://localhost:${process.env.E2E_WEB_PORT || 3200}`).toString());
+    expect(await res.text()).toContain("TG-RUN-");
+    await settle(request);
+  });
+
+  test("contracts show each term with its clause highlighted", async ({ page }) => {
+    await page.goto("/contracts");
+    const polaris = page.locator("section", { hasText: "Managed WAN Services Agreement" });
+    await expect(polaris.getByText("Service credit", { exact: true })).toBeVisible();
+    await expect(polaris.getByText(/99.31%/)).toBeVisible();
+    await polaris.getByRole("button", { name: "Show contract" }).click();
+    await expect(polaris.locator("mark").first()).toContainText("If Monthly Availability");
+  });
+
+  test("the attack lab catches a lookalike vendor and stays out of the real queue", async ({ page, request }) => {
+    await page.goto("/lab");
+    const before = (await (await request.get(`${API}/api/invoices`)).json()).length;
+    await page.locator("div", { hasText: /^Lookalike vendor/ }).getByRole("button", { name: "Launch" }).first().click();
+    await expect(page.getByText(/Lookalike vendor: sent/).first()).toBeVisible();
+    await settle(request);
+    await page.reload();
+    await expect(page.locator("li", { hasText: "Lookalike vendor" }).getByText("caught", { exact: true })).toBeVisible();
+    expect((await (await request.get(`${API}/api/invoices`)).json()).length).toBe(before);
+  });
+
+  test("the audit chain verifies and the guided demo is complete", async ({ page, request }) => {
+    // "seen" steps live in this browser's storage; each test starts with a fresh one
+    for (const n of ["PNS-55120", "BIS-2090"]) {
+      await page.goto(`/invoices/${await invoiceId(request, n)}`);
+      await expect(page.getByText(n).first()).toBeVisible();
+    }
+    await page.goto("/audit");
+    await page.getByRole("button", { name: "Verify chain" }).click();
+    await expect(page.getByText(/events verified/).first()).toBeVisible();
+    await page.goto("/");
+    await expect(page.getByText("All done. Reset the demo to start again.").first()).toBeVisible();
+  });
+
+  test("rejecting a payment asks for a reason in a dialog", async ({ page, request }) => {
+    await request.post(`${API}/api/demo/reset`);
+    await request.post(`${API}/api/demo/inbox`, { data: [3] });
+    await settle(request);
+    await page.goto("/approvals");
+    await actAs(page, "Rosa Kim");
+    const card = page.locator("li", { hasText: "Pay Ostara Components GmbH" });
+    await card.getByRole("button", { name: "Reject" }).click();
+    const dlg = page.getByRole("dialog");
+    await expect(dlg.getByText("Reject this payment?")).toBeVisible();
+    await expect(dlg.getByRole("button", { name: "Reject payment" })).toBeDisabled();
+    await dlg.getByPlaceholder("Reason").fill("Order was cancelled");
+    await dlg.getByRole("button", { name: "Reject payment" }).click();
+    await expect(page.getByText("Payment rejected").first()).toBeVisible();
+    await expect(page.getByText("Recently decided").first()).toBeVisible();
+  });
+
+  test("uploading a PDF puts it through the pipeline", async ({ page, request }) => {
+    const pdf = await (await request.get(`${API}/api/demo/inbox/0/file`)).body();
+    await page.goto("/");
+    await page.locator('input[type="file"]').setInputFiles({ name: "lumen.pdf", mimeType: "application/pdf", buffer: pdf });
+    await expect(page.getByText("1 invoice received").first()).toBeVisible();
+    await settle(request);
+    await page.reload();
+    await expect(page.getByRole("link", { name: /Lumen Office Supply/ }).first()).toBeVisible();
+  });
+});
+
+test.describe("mobile @mobile", () => {
+  test("@mobile the queue renders as cards and invoices open", async ({ page, request }) => {
+    await request.post(`${API}/api/demo/reset`);
+    await request.post(`${API}/api/demo/inbox`, { data: [2] });
+    await settle(request);
+    await page.goto("/");
+    await expect(page.getByRole("navigation").getByRole("link", { name: "Approvals" })).toBeVisible();
+    await page.getByRole("link", { name: /Polaris Network Services/ }).last().click();
+    await expect(page.getByText("Service credit owed for 2026-10").first()).toBeVisible();
+  });
+});

@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Download, Landmark, RefreshCw } from "lucide-react";
 import { api, money, useActor, useData } from "@/lib/api";
 import { Button, Card, Empty, Mono, Stat, cx } from "@/components/ui";
+import { useFeedback } from "@/components/Feedback";
+import { canApprove, personFor } from "@/lib/api";
 
 type Item = { payment_id: number; invoice_id: string; number: string; vendor: string; decision: "pay" | "defer"; amount: string; discount: string; pay: string; due: string; reason: string };
 type Run = {
@@ -23,7 +25,8 @@ type Payments = { cash: number; floor: number; horizon_days: number; runs: Run[]
 type Payment = { id: number; gross: number | null; deductions: number; discount: number; amount: number; scheduled_for: string; status: string; invoice_id: string; vendor: string; number: string; run_id: number | null; pay_to_account: string };
 
 function RunCard({ run, reload }: { run: Run; reload: () => void }) {
-  const { actor } = useActor();
+  const { actor, setActor } = useActor();
+  const fb = useFeedback();
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const approve = async () => {
@@ -31,6 +34,7 @@ function RunCard({ run, reload }: { run: Run; reload: () => void }) {
     setErr(null);
     try {
       await api(`/api/payment-runs/${run.id}/approve`, { method: "POST", json: actor });
+      fb.toast("success", `Run ${run.id} approved`, "Payments are released; the bank file is ready to download.");
       reload();
     } catch (e) {
       setErr((e as Error).message);
@@ -55,9 +59,13 @@ function RunCard({ run, reload }: { run: Run; reload: () => void }) {
           <a href={`/api/payment-runs/${run.id}/bank-file`} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50">
             <Download className="h-3.5 w-3.5" /> Bank file (CSV)
           </a>
-        ) : (
+        ) : canApprove(actor.role, "controller") ? (
           <Button size="sm" variant="good" onClick={approve} disabled={busy}>
             Approve run as {actor.user}
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => setActor(personFor("controller"))}>
+            Act as {personFor("controller").user} (Controller) to approve
           </Button>
         )
       }
