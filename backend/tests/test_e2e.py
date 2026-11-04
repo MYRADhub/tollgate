@@ -24,9 +24,9 @@ def status_of(ids):
         return {name: s.get(Invoice, i).status.value for name, i in ids.items()}
 
 
-def codes(inv_id):
+def codes(inv_id, recover=False):
     with session_scope() as s:
-        return sorted(f.code for f in s.get(Invoice, inv_id).findings if not f.resolved)
+        return sorted(f.code for f in s.get(Invoice, inv_id).findings if not f.resolved and (recover or f.severity.value != "recover"))
 
 
 def test_demo_inbox_outcomes(db):
@@ -45,13 +45,18 @@ def test_demo_inbox_outcomes(db):
     assert codes(ids["kestrel-KFL-88812-R.pdf"]) == ["DUPLICATE_SUSPECT"]
     assert codes(ids["brightline-BIS-2077.pdf"]) == ["PRICE_VARIANCE"]
     assert codes(ids["granite-GE-5561.pdf"]) == ["QTY_NOT_RECEIVED"]
+    assert codes(ids["granite-GE-5561.pdf"], recover=True) == ["PRICE_CAP", "QTY_NOT_RECEIVED"]
+    assert st["polaris-PNS-55120.pdf"] == "scheduled"
+    assert codes(ids["polaris-PNS-55120.pdf"], recover=True) == ["SLA_CREDIT"]
+    assert codes(ids["ostara-OC-7720.pdf"], recover=True) == ["VOLUME_PRICE"]
+    assert codes(ids["brightline-BIS-2077.pdf"], recover=True) == ["PRICE_VARIANCE"]  # not double-claimed under the price cap
     assert codes(ids["vantage-VCS-10488.pdf"]) == ["BANK_MISMATCH"]
     assert set(codes(ids["brightline-BIS-2090.pdf"])) == {"PROMPT_INJECTION", "BANK_MISMATCH", "QTY_OVER_ORDERED"}
     assert {"UNKNOWN_VENDOR", "NO_PO"} <= set(codes(ids["apex-ASA-0091.pdf"]))
 
     with session_scope() as s:
         pays = list(s.execute(select(Payment).where(Payment.status == "scheduled")).scalars())
-        assert len(pays) == 2
+        assert len(pays) == 3
         # payments always go to the vendor-master account
         for p in pays:
             inv = s.get(Invoice, p.invoice_id)
@@ -169,3 +174,48 @@ def test_corrected_invoice_summary_mentions_removed_overcharge(db):
     drain()
     with session_scope() as s:
         assert "removing the 118.80 overcharge" in s.get(Invoice, new_id).summary
+
+
+
+def test_sla_credit_is_deducted_with_remittance_advice(db):
+    from decimal import Decimal
+
+    ids = load_inbox()
+    inv_id = ids["polaris-PNS-55120.pdf"]
+    with session_scope() as s:
+        pay = s.execute(select(Payment).where(Payment.invoice_id == inv_id)).scalar_one()
+        assert (pay.gross, pay.deductions, pay.amount) == (Decimal("6500.00"), Decimal("975.00"), Decimal("5525.00"))
+        mail = s.execute(select(EmailMessage).where(EmailMessage.invoice_id == inv_id)).scalars().one()
+        assert "Remittance advice" in mail.subject
+        assert "falls below 99.5%, 15%" in mail.body  # the clause, quoted
+
+
+def test_volume_price_recovery_after_controller_approval(db):
+    from decimal import Decimal
+
+    from tollgate.api_actions import decide_approval
+
+    ids = load_inbox()
+    inv_id = ids["ostara-OC-7720.pdf"]
+    with session_scope() as s:
+        appr = s.execute(select(Approval).where(Approval.invoice_id == inv_id)).scalars().one()
+        decide_approval(s, appr.id, user="Rosa Kim", role="controller", decision="approved")
+    drain()
+    with session_scope() as s:
+        pay = s.execute(select(Payment).where(Payment.invoice_id == inv_id)).scalar_one()
+        assert pay.deductions == Decimal("1416.00") and pay.amount == Decimal("31944.00")
+
+
+def test_receipt_then_pay_net_of_price_cap(db):
+    from decimal import Decimal
+
+    from tollgate.api_actions import record_receipt
+
+    ids = load_inbox()
+    inv_id = ids["granite-GE-5561.pdf"]
+    with session_scope() as s:
+        record_receipt(s, inv_id, user="Receiving dock")
+    drain()
+    with session_scope() as s:
+        pay = s.execute(select(Payment).where(Payment.invoice_id == inv_id)).scalar_one()
+        assert pay.deductions == Decimal("43.20")  # (96.50 - 94.50) x 20 x 1.08 tax

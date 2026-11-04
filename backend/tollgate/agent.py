@@ -97,6 +97,39 @@ def open_blocking(inv: Invoice) -> list[Finding]:
     return [f for f in inv.findings if f.severity == Severity.block and not f.resolved]
 
 
+def recoveries(inv: Invoice) -> list[Finding]:
+    """Contract recoveries still being claimed (a person can waive one by resolving it)."""
+    return [f for f in inv.findings if f.severity == Severity.recover and not f.resolved]
+
+
+def deductions(inv: Invoice) -> Decimal:
+    return sum((f.amount_at_risk or Decimal(0) for f in recoveries(inv)), Decimal(0))
+
+
+def remittance_advice(inv: Invoice, pay: Payment) -> tuple[str, str]:
+    v = inv.vendor
+    lines = [
+        "Hello,",
+        "",
+        f"We have scheduled payment for invoice {inv.number} (PO {inv.po_number}).",
+        "",
+        f"  Invoice total:   {inv.currency or 'USD'} {_money(pay.gross)}",
+        f"  Deductions:      {inv.currency or 'USD'} {_money(pay.deductions)}",
+        f"  Amount paid:     {inv.currency or 'USD'} {_money(pay.amount)}",
+        f"  Payment date:    {pay.scheduled_for} (on or before)",
+        f"  Paid to account: ending {(v.bank_account or '')[-4:]}",
+        "",
+        "The deductions are amounts due to Halden Robotics under our agreement:",
+    ]
+    for f in recoveries(inv):
+        ev = f.evidence or {}
+        lines += ["", f"- {f.title}: {inv.currency or 'USD'} {_money(f.amount_at_risk)}", f"  {f.detail}",
+                  f"  {ev.get('contract', 'Agreement')}: \"{ev.get('quote', '')}\""]
+    lines += ["", "If you believe a deduction is wrong, reply to this email with your supporting records and we will review it.",
+              "", "Tollgate, Accounts Payable, Halden Robotics"]
+    return f"Remittance advice: invoice {inv.number}, {_money(pay.deductions)} deducted under contract", "\n".join(lines)
+
+
 def approvals_for(s: Session, inv: Invoice) -> list[Approval]:
     return list(s.execute(select(Approval).where(Approval.invoice_id == inv.id, Approval.kind == "payment")).scalars())
 
@@ -133,7 +166,7 @@ def build_prompt(s: Session, inv: Invoice, trigger: str, extra: str | None) -> s
     )
     findings = "\n".join(
         f"  [{f.id}] {f.severity.value.upper()} {f.code}{' (resolved: ' + (f.resolution or '') + ')' if f.resolved else ''}: {f.detail}"
-        + (f" At risk: {_money(f.amount_at_risk)}." if f.amount_at_risk else "")
+        + (f" {'Owed to us' if f.severity == Severity.recover else 'At risk'}: {_money(f.amount_at_risk)}." if f.amount_at_risk else "")
         for f in inv.findings
     ) or "  none"
     thread = "\n".join(f"  {e.created_at:%Y-%m-%d %H:%M} {e.direction.upper()} {e.sender} -> {e.recipient}: {e.subject}\n    {e.body[:600]}" for e in emails) or "  none"
@@ -240,6 +273,10 @@ def clean_summary(s: Session, inv: Invoice) -> str:
     v = inv.vendor
     parts = [f"{inv.number} from {v.name if v else inv.vendor_name_raw} for {inv.currency or 'USD'} {_money(inv.total)} matches {inv.po_number}, "
              f"its goods receipt and the vendor master; all {len(checks_run())} controls pass."]
+    rec = recoveries(inv)
+    if rec:
+        parts.append(f"Its contract entitles us to {_money(deductions(inv))} back ("
+                     + "; ".join(f.title.lower() for f in rec) + "), so we pay the net amount and send remittance advice citing the clause.")
     if inv.supersedes_id:
         old = s.get(Invoice, inv.supersedes_id)
         if old is not None and old.total is not None and inv.total is not None:
@@ -269,14 +306,31 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
             raise Denied("schedule_payment refused: no verified vendor bank account")
         if not payment_approved(s, inv):
             raise Denied(f"schedule_payment refused: needs {required_role(inv.total or Decimal(0)).value} approval first")
+        from .contracts import early_pay
+        from .pipeline import vendor_terms
+
         terms_due = (inv.invoice_date or date.today()) + timedelta(days=v.payment_terms_days)
         pay_on = max(terms_due, date.today())
         if inv.id and s.execute(select(Payment).where(Payment.invoice_id == inv.id)).scalar_one_or_none():
             return "already scheduled"
-        s.add(Payment(invoice_id=inv.id, vendor_id=v.id, amount=inv.total, currency=inv.currency or "USD",
-                      pay_to_account=v.bank_account, pay_to_routing=v.bank_routing, scheduled_for=pay_on))
+        gross = inv.total or Decimal(0)
+        ded = min(deductions(inv), gross)
+        ep = early_pay(vendor_terms(s, v.id), inv.invoice_date)
+        pay = Payment(invoice_id=inv.id, vendor_id=v.id, gross=gross, deductions=ded, discount=Decimal(0), amount=gross - ded,
+                      currency=inv.currency or "USD", pay_to_account=v.bank_account, pay_to_routing=v.bank_routing,
+                      scheduled_for=pay_on, due_date=terms_due,
+                      discount_pct=ep[0] if ep else None, discount_deadline=ep[1] if ep else None)
+        s.add(pay)
+        s.flush()
         inv.status = InvoiceStatus.scheduled
-        return f"Scheduled {inv.currency} {_money(inv.total)} to {v.name}, account ending {v.bank_account[-4:]} (verified), on {pay_on}"
+        msg = f"Scheduled {inv.currency} {_money(pay.amount)} to {v.name}, account ending {v.bank_account[-4:]} (verified), due {terms_due}"
+        if ded:
+            subject, body = remittance_advice(inv, pay)
+            mailer.send(s, invoice_id=inv.id, to=v.email, subject=f"{subject} [TG-{inv.id}]", body=body)
+            msg += f"; deducted {_money(ded)} owed under contract and sent remittance advice to {v.email}"
+        if ep and ep[1] >= date.today():
+            msg += f"; {ep[0]}% early-payment discount available until {ep[1]}"
+        return msg
 
     if t == "reject":
         codes = {f.code for f in open_blocking(inv)}

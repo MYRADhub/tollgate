@@ -7,7 +7,7 @@ from tollgate.worker import drain
 def test_api_flow(db):
     c = TestClient(app)
     assert c.get("/api/health").json()["ok"]
-    r = c.post("/api/demo/inbox", json=[0, 4])
+    r = c.post("/api/demo/inbox", json=[0, 5])
     assert r.status_code == 200
     drain()
     rows = c.get("/api/invoices").json()
@@ -35,8 +35,27 @@ def test_upload_rejects_non_pdf(db):
 
 def test_approval_errors_are_400(db):
     c = TestClient(app)
-    c.post("/api/demo/inbox", json=[2])
+    c.post("/api/demo/inbox", json=[3])
     drain()
     appr = c.get("/api/approvals").json()[0]
     r = c.post(f"/api/approvals/{appr['id']}/decide", json={"user": "Sam", "role": "clerk", "decision": "approved"})
     assert r.status_code == 400
+
+
+def test_contracts_listing_and_term_review_permissions(db):
+    c = TestClient(app)
+    rows = c.get("/api/contracts").json()
+    polaris = next(r for r in rows if r["vendor"] == "Polaris Network Services")
+    assert polaris["terms"][0]["kind"] == "sla_credit" and polaris["terms"][0]["status"] == "approved"
+    assert polaris["metrics"][-1]["value"] == 99.31
+    tid = polaris["terms"][0]["id"]
+    r = c.post(f"/api/terms/{tid}/decide", json={"user": "Sam", "role": "clerk", "decision": "rejected"})
+    assert r.status_code == 400
+    assert c.post("/api/contracts/1/extract", json={"user": "Rosa", "role": "controller"}).status_code == 503  # no inference in tests
+
+
+def test_stats_report_recovered(db):
+    c = TestClient(app)
+    c.post("/api/demo/inbox", json=[2])  # Polaris
+    drain()
+    assert c.get("/api/stats").json()["recovered"] == 975.0

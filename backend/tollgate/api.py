@@ -25,6 +25,9 @@ from .db import SessionLocal, get_session, init_db, session_scope
 from .models import (
     Approval,
     AuditEvent,
+    Contract,
+    ContractTerm,
+    ServiceMetric,
     BankChange,
     EmailMessage,
     Finding,
@@ -101,6 +104,9 @@ def invoice_row(inv: Invoice) -> dict:
     d["flags"] = sorted({f.code for f in open_block})
     d["at_risk"] = float(max((f.amount_at_risk or 0 for f in open_block), default=0))
     d["waiting_for"] = (inv.agent_state or {}).get("waiting_for")
+    rec = [f for f in inv.findings if f.severity == Severity.recover and not f.resolved]
+    d["recover"] = sorted({f.code for f in rec})
+    d["recover_amount"] = float(sum((f.amount_at_risk or 0) for f in rec))
     return d
 
 
@@ -161,6 +167,7 @@ def stats(s: Session = Depends(get_session)):
             old = s.get(Invoice, i.supersedes_id)
             if old and old.total and i.total:
                 corrected += max(old.total - i.total, Decimal(0))
+    recovered = s.execute(select(func.coalesce(func.sum(Payment.deductions), 0))).scalar_one() or 0
     pending_approvals = s.execute(select(func.count(Approval.id)).where(Approval.decision.is_(None))).scalar_one()
     scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status == "scheduled")).scalar_one()
     return {
@@ -170,6 +177,7 @@ def stats(s: Session = Depends(get_session)):
         "touchless": len(touchless),
         "touchless_rate": (len(touchless) / len(decided)) if decided else 0,
         "prevented": float(prevented + corrected),
+        "recovered": float(recovered),
         "caught": caught,
         "pending_approvals": pending_approvals,
         "scheduled_total": float(scheduled_total or 0),
@@ -224,7 +232,8 @@ def get_invoice(invoice_id: str, s: Session = Depends(get_session)):
         for e in s.execute(select(EmailMessage).where(EmailMessage.invoice_id == inv.id).order_by(EmailMessage.id)).scalars()
     ]
     pay = s.execute(select(Payment).where(Payment.invoice_id == inv.id)).scalar_one_or_none()
-    d["payment"] = ser(pay, ["amount", "currency", "pay_to_account", "pay_to_routing", "scheduled_for", "status"]) if pay else None
+    d["payment"] = ser(pay, ["gross", "deductions", "discount", "amount", "currency", "pay_to_account", "pay_to_routing", "scheduled_for",
+                             "due_date", "discount_deadline", "discount_pct", "status", "run_id"]) if pay else None
     bc = s.execute(select(BankChange).where(BankChange.invoice_id == inv.id)).scalar_one_or_none()
     d["bank_change"] = ser(bc, ["id", "old_account", "new_account", "new_routing", "new_bank_name", "status", "callback_note"]) if bc else None
     chain_ids = [inv.id]
@@ -427,6 +436,109 @@ def receipt(invoice_id: str, body: Actor):
 @app.post("/api/invoices/{invoice_id}/reject")
 def reject(invoice_id: str, body: Reject):
     return _wrap(lambda s: {"ok": bool(api_actions.reject_invoice(s, invoice_id, user=f"{body.user} ({body.role})", reason=body.reason))})
+
+
+# --------------------------------------------------------------------------- contracts
+
+
+def contract_row(s: Session, c: Contract) -> dict:
+    metrics = [
+        ser(m, ["period", "metric", "value", "source"])
+        for m in s.execute(select(ServiceMetric).where(ServiceMetric.vendor_id == c.vendor_id).order_by(ServiceMetric.period)).scalars()
+    ]
+    return {
+        **ser(c, ["id", "vendor_id", "title", "effective_date", "text", "created_at"]),
+        "vendor": c.vendor.name,
+        "terms": [ser(t, ["id", "kind", "params", "quote", "summary", "status", "source", "reviewed_by", "created_at"]) for t in c.terms],
+        "metrics": metrics,
+    }
+
+
+@app.get("/api/contracts")
+def list_contracts(s: Session = Depends(get_session)):
+    rows = s.execute(select(Contract).join(Vendor, Vendor.id == Contract.vendor_id).order_by(Vendor.name)).scalars()
+    return [contract_row(s, c) for c in rows]
+
+
+class NewContract(Actor):
+    vendor_id: str
+    title: str
+    text: str
+
+
+def _add_extracted(s: Session, c: Contract, actor: str) -> dict:
+    from .contracts import extract_terms
+
+    if not settings.inference_api_key:
+        raise HTTPException(503, "Contract reading needs Vultr Serverless Inference")
+    found, rejected = extract_terms(c.text)
+    existing = {(t.kind, json.dumps(t.params, sort_keys=True)) for t in c.terms if t.status != "rejected"}
+    added = 0
+    for t in found:
+        key = (t["kind"], json.dumps(t["params"], sort_keys=True))
+        if key in existing:
+            continue
+        c.terms.append(ContractTerm(kind=t["kind"], params=t["params"], quote=t["quote"], summary=t["summary"], status="proposed", source=settings.model_reasoning))
+        added += 1
+    s.flush()
+    audit.record(s, actor="agent", kind="contract_read", summary=f"Read {c.vendor.name} {c.title}: {len(found)} term(s) found, {added} new for review"
+                 + (f", {len(rejected)} discarded ({'; '.join(rejected)[:300]})" if rejected else ""), detail={"by": actor})
+    from .llm import flush_spend
+
+    flush_spend()
+    return {"found": len(found), "added": added, "rejected": rejected}
+
+
+@app.post("/api/contracts")
+def add_contract(body: NewContract):
+    _rate_limit()
+    if len(body.text) < 200:
+        raise HTTPException(400, "Paste the contract text (at least a few paragraphs)")
+    with session_scope() as s:
+        v = s.get(Vendor, body.vendor_id)
+        if v is None:
+            raise HTTPException(404, "vendor not found")
+        c = Contract(vendor_id=v.id, title=body.title[:200] or "Agreement", text=body.text[:60000])
+        s.add(c)
+        s.flush()
+        audit.record(s, actor=f"{body.user} ({body.role})", kind="contract_added", summary=f"{body.user} added {v.name}: {c.title}")
+        result = _add_extracted(s, c, body.user)
+        return {"id": c.id, **result}
+
+
+@app.post("/api/contracts/{contract_id}/extract")
+def reextract(contract_id: int, body: Actor):
+    _rate_limit()
+    with session_scope() as s:
+        c = s.get(Contract, contract_id)
+        if c is None:
+            raise HTTPException(404)
+        return _add_extracted(s, c, body.user)
+
+
+class TermDecision(Actor):
+    decision: str
+
+
+@app.post("/api/terms/{term_id}/decide")
+def decide_term(term_id: int, body: TermDecision):
+    if body.role not in ("controller", "cfo"):
+        raise HTTPException(400, "Contract terms are approved by the controller or CFO")
+    if body.decision not in ("approved", "rejected"):
+        raise HTTPException(400, "decision must be approved or rejected")
+    with session_scope() as s:
+        t = s.get(ContractTerm, term_id)
+        if t is None:
+            raise HTTPException(404)
+        t.status, t.reviewed_by = body.decision, f"{body.user} ({body.role})"
+        c = t.contract
+        audit.record(s, actor=f"{body.user} ({body.role})", kind=f"term_{body.decision}",
+                     summary=f"{body.user} {body.decision} a {c.vendor.name} contract term: {t.summary}")
+        if body.decision == "approved":
+            for inv in s.execute(select(Invoice).where(Invoice.vendor_id == c.vendor_id, Invoice.status.in_(
+                    [InvoiceStatus.on_hold, InvoiceStatus.awaiting_approval, InvoiceStatus.awaiting_vendor]))).scalars():
+                pipeline.enqueue(s, "recheck", inv.id, {"reason": "contract term approved"})
+        return {"ok": True}
 
 
 # --------------------------------------------------------------------------- demo

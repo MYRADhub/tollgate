@@ -52,6 +52,7 @@ class Severity(str, enum.Enum):
     info = "info"
     warn = "warn"
     block = "block"
+    recover = "recover"  # money the vendor owes us under its contract; deducted, not blocking
 
 
 class Role(str, enum.Enum):
@@ -244,7 +245,14 @@ class Payment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.id"), unique=True)
     vendor_id: Mapped[str] = mapped_column(ForeignKey("vendors.id"))
-    amount: Mapped[Decimal] = mapped_column(Money)
+    gross: Mapped[Decimal | None] = mapped_column(Money)  # invoice total
+    deductions: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))  # contract recoveries
+    discount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))  # early-payment discount taken
+    amount: Mapped[Decimal] = mapped_column(Money)  # what actually leaves the bank
+    due_date: Mapped[date | None] = mapped_column(Date)
+    discount_deadline: Mapped[date | None] = mapped_column(Date)
+    discount_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("payment_runs.id"))
     currency: Mapped[str] = mapped_column(String(3))
     pay_to_account: Mapped[str] = mapped_column(String(64))
     pay_to_routing: Mapped[str | None] = mapped_column(String(32))
@@ -299,3 +307,76 @@ class InferenceSpend(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0))
+
+
+class Contract(Base):
+    __tablename__ = "contracts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vendor_id: Mapped[str] = mapped_column(ForeignKey("vendors.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    vendor: Mapped[Vendor] = relationship()
+    terms: Mapped[list[ContractTerm]] = relationship(back_populates="contract", cascade="all, delete-orphan", order_by="ContractTerm.id")
+
+
+class ContractTerm(Base):
+    """One machine-checkable term, extracted from a contract with its exact clause.
+
+    The model proposes terms; a person approves them; code applies approved
+    terms to every invoice."""
+
+    __tablename__ = "contract_terms"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    contract_id: Mapped[int] = mapped_column(ForeignKey("contracts.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(30))  # sla_credit | volume_price | price_cap | early_pay_discount
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    quote: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="proposed")  # proposed | approved | rejected
+    source: Mapped[str] = mapped_column(String(40), default="model")
+    reviewed_by: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    contract: Mapped[Contract] = relationship(back_populates="terms")
+
+
+class ServiceMetric(Base):
+    """Measured service levels (from our own monitoring), used for SLA credits."""
+
+    __tablename__ = "service_metrics"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vendor_id: Mapped[str] = mapped_column(ForeignKey("vendors.id"), index=True)
+    period: Mapped[str] = mapped_column(String(7))  # YYYY-MM
+    metric: Mapped[str] = mapped_column(String(40))
+    value: Mapped[Decimal] = mapped_column(Numeric(8, 4))
+    source: Mapped[str] = mapped_column(String(200))
+
+
+class CriticReview(Base):
+    __tablename__ = "critic_reviews"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoices.id"), index=True)
+    proposal: Mapped[dict] = mapped_column(JSON, default=dict)
+    verdict: Mapped[str] = mapped_column(String(20))  # agree | concerns | disagree | unavailable
+    summary: Mapped[str] = mapped_column(Text)
+    points: Mapped[list] = mapped_column(JSON, default=list)
+    independent_amount: Mapped[Decimal | None] = mapped_column(Money)
+    model: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PaymentRun(Base):
+    __tablename__ = "payment_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="proposed")  # proposed | approved | rejected
+    cash_before: Mapped[Decimal] = mapped_column(Money)
+    cash_floor: Mapped[Decimal] = mapped_column(Money)
+    total: Mapped[Decimal] = mapped_column(Money)
+    discounts: Mapped[Decimal] = mapped_column(Money)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    proposed_by: Mapped[str] = mapped_column(String(120), default="agent")
+    approved_by: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

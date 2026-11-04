@@ -15,7 +15,12 @@ from . import audit
 from .config import get_settings
 from .db import Base
 from .invoicegen import InvLine, InvoiceSpec, render
+from .seed_contracts import CONTRACTS, METRICS
+from .contracts import describe, quote_in_text, validate_params
 from .models import (
+    Contract,
+    ContractTerm,
+    ServiceMetric,
     GoodsReceipt,
     Invoice,
     InvoiceLine,
@@ -55,6 +60,7 @@ VENDORS = [
     VendorSeed("granite", "Granite Electrical Co.", "87-0663120", "1550 W 2100 S\nSalt Lake City, UT 84119", "Wasatch Federal", "3318 0042 7761", "124000054", 30, (0.33, 0.37, 0.4)),
     VendorSeed("vantage", "Vantage Cloud Services", "26-4471820", "500 Market St, Suite 900\nSan Francisco, CA 94105", "Silicon Valley Commerce Bank", "9044 1276 0031", "121140399", 30, (0.36, 0.2, 0.6)),
     VendorSeed("lumen", "Lumen Office Supply", "91-2208345", "75 Pine Ave\nProvo, UT 84601", "Utah Community Bank", "2209 5518 0074", "124302150", 15, (0.05, 0.5, 0.42)),
+    VendorSeed("polaris", "Polaris Network Services", "77-4019283", "2100 Telecom Pkwy\nDenver, CO 80202", "Mountain West Bank", "6120 3391 0457", "102003154", 30, (0.07, 0.3, 0.45)),
 ]
 
 # number, vendor slug, dept, owner, owner email, issued, lines(sku, desc, qty, price), received {sku: qty}
@@ -80,6 +86,9 @@ POS = [
     ("PO-24107", "brightline", "Manufacturing", "Dana Whitfield", "dana", date(2026, 10, 14),
      [("BRG-6204", "Deep groove ball bearing 6204-2RS", 200, "4.10"), ("LUBE-EP2", "EP2 lithium grease, 14 oz", 24, "7.80")],
      {"BRG-6204": 200, "LUBE-EP2": 24}),
+    ("PO-24108", "polaris", "IT", "Elena Sorensen", "elena", date(2026, 7, 1),
+     [("MPLS-1G-SLC", "Managed MPLS 1 Gbps, Salt Lake City plant, monthly", 12, "6500.00")],
+     {"MPLS-1G-SLC": 12}),
 ]
 
 
@@ -127,13 +136,15 @@ def demo_inbox() -> list[DemoInvoice]:
                     spec_for("lumen", "LOS-3391", d, "PO-24106", [("PAPER-LTR", "Copy paper, letter, case of 10 reams", 50, "6.20"), ("TONER-HP", "Toner cartridge, HP 58A", 10, "89.00")])),
         DemoInvoice("brightline-BIS-2041.pdf", "Fasteners and PPE, clean", "Matches PO and receipt; paid automatically.",
                     spec_for("brightline", "BIS-2041", d, "PO-24101", [("BOLT-M8", "M8 hex bolts, zinc, box of 100", 40, "45.00"), ("GLOVE-L", "Nitrile gloves, large, case", 60, "12.50"), ("GLS-SAFE", "Safety glasses, anti-fog", 30, "8.90")])),
-        DemoInvoice("ostara-OC-7720.pdf", "Servo motors, high value", "Clean 3-way match but above the auto-pay limit: routed to the controller.",
+        DemoInvoice("polaris-PNS-55120.pdf", "Network service after an outage", "Matches its PO, but October uptime was 99.31% against a 99.95% SLA: a 15% credit ($975) is owed and deducted.",
+                    spec_for("polaris", "PNS-55120", d, "PO-24108", [("MPLS-1G-SLC", "Managed MPLS 1 Gbps, Salt Lake City plant, monthly", 1, "6500.00")], tax_rate=D("0"))),
+        DemoInvoice("ostara-OC-7720.pdf", "Servo motors, high value", "Matches the PO, but the contract's volume price is $1,121 a motor, not $1,180: $1,416 owed. Above the auto-pay limit, so the controller approves.",
                     spec_for("ostara", "OC-7720", d, "PO-24102", [("MTR-BLDC-48", "BLDC servo motor 48V 750W", 24, "1180.00"), ("ENC-14B", "14-bit absolute encoder", 24, "210.00")], tax_rate=D("0"))),
         DemoInvoice("kestrel-KFL-88812-R.pdf", "Freight, resubmitted", "Same amount as last month's paid KFL-88812 under a new number: duplicate.",
                     spec_for("kestrel", "KFL-88812-R", TODAY - timedelta(days=1), "PO-24103", [("FRT-LTL", "LTL freight, Denver to SLC, per load", 3, "640.00")], tax_rate=D("0"))),
         DemoInvoice("brightline-BIS-2077.pdf", "Bearings, overbilled", "Bearings billed 13% above PO price: agent asks the vendor for a corrected invoice.",
                     spec_for("brightline", "BIS-2077", d, "PO-24107", [("BRG-6204", "Deep groove ball bearing 6204-2RS", 200, "4.65"), ("LUBE-EP2", "EP2 lithium grease, 14 oz", 24, "7.80")])),
-        DemoInvoice("granite-GE-5561.pdf", "Breakers, not all received", "Bills 40 breakers, receiving logged 25: held until goods arrive.",
+        DemoInvoice("granite-GE-5561.pdf", "Breakers, not all received", "Bills 40 breakers, receiving logged 25: held until goods arrive. Copper cable is also above the contract's 5% price cap.",
                     spec_for("granite", "GE-5561", d, "PO-24104", [("CBL-12AWG", "12 AWG THHN copper, 500 ft spool", 20, "96.50"), ("BRK-20A", "20A single-pole breaker", 40, "18.75")])),
         DemoInvoice("vantage-VCS-10488.pdf", "Subscription, new bank details", "Asks for payment to a new bank account: classic payment-redirection fraud pattern.",
                     spec_for("vantage", "VCS-10488", d, "PO-24105", [("SUB-ENT-Q4", "Enterprise platform subscription, Q4 2026", 1, "4800.00")],
@@ -208,4 +219,19 @@ def reset_and_seed(s: Session) -> None:
     get_store().put(inv.file_key, pdf)
     s.add(Payment(invoice_id=inv.id, vendor_id=inv.vendor_id, amount=inv.total, currency="USD", pay_to_account=prior.account,
                   pay_to_routing=prior.routing, scheduled_for=date(2026, 11, 1), status="sent"))
-    audit.record(s, actor="system", kind="seed", summary="Demo company loaded: 6 vendors, 7 purchase orders, 1 paid invoice")
+    seed_contracts(s, vendors)
+    audit.record(s, actor="system", kind="seed", summary=f"Demo company loaded: {len(VENDORS)} vendors, {len(POS)} purchase orders, {len(CONTRACTS)} contracts, 1 paid invoice")
+
+
+def seed_contracts(s: Session, vendors: dict[str, Vendor]) -> None:
+    for slug, c in CONTRACTS.items():
+        contract = Contract(vendor_id=vendors[slug].id, title=c["title"], effective_date=c["effective"], text=c["text"])
+        for t in c["terms"]:
+            params = validate_params(t["kind"], t["params"])
+            assert quote_in_text(t["quote"], c["text"]), f"seed quote not in {slug} contract"
+            contract.terms.append(ContractTerm(kind=t["kind"], params=params, quote=t["quote"], summary=describe(t["kind"], params),
+                                               status="approved", source="reviewed", reviewed_by="Rosa Kim (controller)"))
+        s.add(contract)
+    for slug, period, metric, value, source in METRICS:
+        s.add(ServiceMetric(vendor_id=vendors[slug].id, period=period, metric=metric, value=D(value), source=source))
+    s.flush()

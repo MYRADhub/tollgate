@@ -11,11 +11,14 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import audit, checks
+from . import audit, checks, contracts
 from .config import get_settings
 from .extraction import extract, extract_from_text
 from .injection import screen
 from .models import (
+    Contract,
+    ContractTerm,
+    ServiceMetric,
     Finding,
     Invoice,
     InvoiceLine,
@@ -198,10 +201,41 @@ def to_check_input(inv: Invoice) -> checks.InvoiceData:
     )
 
 
+def vendor_terms(s: Session, vendor_id: str | None) -> list[contracts.TermData]:
+    if not vendor_id:
+        return []
+    rows = s.execute(
+        select(ContractTerm, Contract.title).join(Contract, Contract.id == ContractTerm.contract_id)
+        .where(Contract.vendor_id == vendor_id, ContractTerm.status == "approved").order_by(ContractTerm.id)
+    ).all()
+    return [contracts.TermData(t.id, t.kind, t.params, t.quote, title) for t, title in rows]
+
+
+def contract_recoveries(s: Session, inv: Invoice, findings: list[checks.FindingData]) -> list[checks.FindingData]:
+    terms = vendor_terms(s, inv.vendor_id)
+    if not terms or not inv.lines:
+        return []
+    metrics = {
+        (m.period, m.metric): m.value
+        for m in s.execute(select(ServiceMetric).where(ServiceMetric.vendor_id == inv.vendor_id)).scalars()
+    }
+    tax_rate = (inv.tax / inv.subtotal).quantize(Decimal("0.0001")) if inv.tax and inv.subtotal else Decimal(0)
+    lines = [contracts.LineIn(ln.position, ln.sku, ln.description, ln.quantity, ln.unit_price, ln.amount) for ln in inv.lines]
+    # A line already blocked for exceeding its PO price is going back to the vendor; don't also claim it.
+    disputed = {f.evidence.get("line") for f in findings if f.code == "PRICE_VARIANCE"}
+    out = []
+    for r in contracts.apply_terms(lines, inv.invoice_date, terms, metrics, tax_rate):
+        if r.evidence.get("line") in disputed:
+            continue
+        out.append(checks.FindingData(r.code, r.severity, r.title, r.detail, r.evidence, r.amount))
+    return out
+
+
 def run_controls(s: Session, inv: Invoice) -> checks.CheckResult:
     _set_status(s, inv, InvoiceStatus.checking)
     result = checks.run_checks(to_check_input(inv), build_context(s, inv))
     inv.vendor_id = result.vendor.id if result.vendor else None
+    result.findings.extend(contract_recoveries(s, inv, result.findings))
 
     # Keep human resolutions of findings that recur; drop findings no longer true.
     previous = {(f.code, f.title): f for f in inv.findings}
@@ -225,13 +259,17 @@ def run_controls(s: Session, inv: Invoice) -> checks.CheckResult:
     inv.agent_state = {**(inv.agent_state or {}), "line_matches": _jsonable(result.line_matches)}
     s.flush()
     blocking = [f for f in kept if f.severity.value == "block" and not f.resolved]
+    recover = [f for f in kept if f.severity.value == "recover"]
+    other = len(kept) - len(blocking) - len(recover)
     audit.record(
         s,
         actor="controls",
         kind="checked",
         invoice_id=inv.id,
         summary=(
-            f"Ran {len(checks_run())} controls: {len(blocking)} blocking, {len(kept) - len(blocking)} other finding(s)"
+            f"Ran {len(checks_run())} controls and {len(vendor_terms(s, inv.vendor_id))} contract terms: {len(blocking)} blocking"
+            + (f", {len(recover)} recovery worth {sum((f.amount_at_risk or 0) for f in recover):,.2f}" if recover else "")
+            + (f", {other} other" if other else "")
             + (f"; {len(cleared)} earlier finding(s) now clear" if cleared else "")
         ),
         detail={"findings": [f"{f.severity.value}:{f.code}" for f in kept], "cleared": [f.code for f in cleared]},
