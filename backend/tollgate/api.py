@@ -175,7 +175,9 @@ def stats(s: Session = Depends(get_session)):
                 corrected += max(old.total - i.total, Decimal(0))
     real = select(Invoice.id).where(Invoice.source != "lab")
     recovered = s.execute(select(func.coalesce(func.sum(Payment.deductions), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
-    pending_approvals = s.execute(select(func.count(Approval.id)).where(Approval.decision.is_(None), Approval.invoice_id.in_(real))).scalar_one()
+    # What a person sees: one item per payment approval, one per bank change (whatever its slots)
+    pending = list(s.execute(select(Approval.kind, Approval.bank_change_id, Approval.id).where(Approval.decision.is_(None), Approval.invoice_id.in_(real))).all())
+    pending_approvals = len({(k, bc) if k == "bank_change" else (k, i) for k, bc, i in pending})
     scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status.in_(["scheduled", "released"]), Payment.run_id.is_not(None) | (Payment.status == "scheduled"))).scalar_one()
     discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
     return {

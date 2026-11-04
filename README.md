@@ -84,7 +84,7 @@ The **Attack lab** page lets anyone try to get Tollgate to pay something it shou
 | Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 17/18 |
 | **Total** | **92/93** |
 
-The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 76 unit and integration tests (`npm test`).
+The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 76 unit and integration tests and 14 browser tests (see Running locally).
 
 ## Vultr services used
 
@@ -142,7 +142,10 @@ npm install
 npm run dev -- --port 3100                   # proxies /api to http://127.0.0.1:8000
 ```
 
-Tests: `npm test` from the repo root (backend tests, then frontend type check and lint).
+Tests, from the repo root:
+
+- `npm test`: 76 backend unit and integration tests, then the frontend type check and lint.
+- `npm run test:e2e`: 14 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
 
 ## Deploying on Vultr
 

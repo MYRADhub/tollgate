@@ -2,6 +2,7 @@
   "name": "tollgate",
   "private": true,
   "scripts": {
-    "test": "cd backend && uv run pytest -q && cd ../frontend && npx tsc --noEmit && npm run lint"
+    "test": "cd backend && uv run pytest -q && cd ../frontend && npx tsc --noEmit && npm run lint",
+    "test:e2e": "cd frontend && npx playwright test"
   }
 }
