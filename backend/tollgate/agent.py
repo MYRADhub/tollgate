@@ -119,7 +119,7 @@ def remittance_advice(inv: Invoice, pay: Payment) -> tuple[str, str]:
         f"  Payment date:    {pay.scheduled_for} (on or before)",
         f"  Paid to account: ending {(v.bank_account or '')[-4:]}",
         "",
-        "The deductions are amounts due to Halden Robotics under our agreement:",
+        "The deductions are amounts due to Halden Robotics:",
     ]
     for f in recoveries(inv):
         ev = f.evidence or {}
@@ -338,6 +338,9 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
                       discount_pct=ep[0] if ep else None, discount_deadline=ep[1] if ep else None)
         s.add(pay)
         s.flush()
+        from .statements import mark_applied
+
+        mark_applied(s, inv)
         inv.status = InvoiceStatus.scheduled
         from .pipeline import enqueue
 

@@ -335,6 +335,8 @@ export type Stats = {
   pending_approvals: number;
   scheduled_total: number;
   queue: number;
+  credits_approved: number;
+  credits_open: number;
   cost: { invoices: number; usd: number; calls: number; per_invoice_usd: number | null; benchmark_usd: number; benchmark_source: string };
 };
 

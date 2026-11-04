@@ -8,6 +8,7 @@ Four suites, each case run on a fresh database:
   contracts  model-extracted contract terms must equal the reviewed terms
   critic     the critic must disagree with planted errors and agree with correct proposals
   inquiries  vendor questions answered correctly, with nothing disclosed to the wrong sender
+  statements every line of the demo statements read exactly, and the reconciliation fully explained
 Writes tollgate/eval_results.json, which the attack lab page shows.
 """
 
@@ -276,10 +277,44 @@ def suite_inquiries(runs: int) -> list[dict]:
     return out
 
 
+def suite_statements(runs: int) -> list[dict]:
+    from decimal import Decimal
+
+    from . import statements
+    from .db import session_scope
+    from .models import Vendor
+
+    fresh_db()
+    out = []
+    want = {
+        "kestrel-statement-2026-11.pdf": [("KFL-88812", "1920.00"), ("CM-4471", "-320.00"), ("KFL-88812-R", "1920.00")],
+        "brightline-statement-2026-11.pdf": [("BIS-1987", "842.40"), ("CM-2207", "-156.20"), ("BIS-2041", None), ("BIS-2077", None)],
+    }
+    for name, _title, _exp, pdf in statements.demo_statements():
+        passes = 0
+        for _ in range(runs):
+            raw, text, method = statements.read(pdf)
+            d = statements.normalise(raw, text)
+            got = [(x["reference"], x["amount"]) for x in d["lines"]]
+            ok = method == "vision" and len(got) == len(want[name]) and all(
+                g[0] == w[0] and (w[1] is None or Decimal(g[1]) == Decimal(w[1])) for g, w in zip(got, want[name])) and d["adds_up"]
+            with session_scope() as s:
+                ok = ok and statements.find_vendor(s, d["vendor_name"]) is not None
+                if ok:
+                    v = statements.find_vendor(s, d["vendor_name"])
+                    ok = statements.reconcile(s, s.get(Vendor, v.id), d)["unexplained"] == "0.00"
+            passes += int(ok)
+            if not ok:
+                print(f"    FAIL {name}: {method} {got} adds_up={d['adds_up']}")
+        out.append({"case": name.split("-")[0], "name": f"{name.split('-')[0].title()} statement read and reconciled", "runs": runs, "passed": passes})
+        print(f"  statement {name:34} {passes}/{runs}")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=3)
-    ap.add_argument("--suites", default="attacks,inbox,contracts,critic,inquiries")
+    ap.add_argument("--suites", default="attacks,inbox,contracts,critic,inquiries,statements")
     a = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
     from .config import get_settings
@@ -294,7 +329,7 @@ def main() -> None:
     suites = {}
     for name in a.suites.split(","):
         print(f"== {name}")
-        suites[name] = {"attacks": suite_attacks, "inbox": suite_inbox, "contracts": suite_contracts, "critic": suite_critic, "inquiries": suite_inquiries}[name](a.runs)
+        suites[name] = {"attacks": suite_attacks, "inbox": suite_inbox, "contracts": suite_contracts, "critic": suite_critic, "inquiries": suite_inquiries, "statements": suite_statements}[name](a.runs)
     total = sum(c["runs"] for v in suites.values() for c in v)
     passed = sum(c["passed"] for v in suites.values() for c in v)
     result = {
@@ -306,7 +341,7 @@ def main() -> None:
         "seconds": round(time.time() - t0, 1),
         "suites": suites,
     }
-    if OUT.exists() and a.suites != "attacks,inbox,contracts,critic,inquiries":
+    if OUT.exists() and a.suites != "attacks,inbox,contracts,critic,inquiries,statements":
         prev = json.loads(OUT.read_text())
         prev["suites"].update(suites)
         prev["ran_at"] = result["ran_at"]

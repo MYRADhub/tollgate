@@ -188,7 +188,13 @@ export default function InvoicesPage() {
         <Stat
           label="Recovered for you"
           value={stats ? compactMoney(stats.recovered + stats.discounts) : "-"}
-          sub={stats ? `${money(stats.recovered)} under contracts · ${money(stats.discounts)} discounts` : undefined}
+          sub={
+            stats
+              ? `${money(stats.recovered)} deducted · ${money(stats.discounts)} discounts` +
+                (stats.credits_approved ? ` · ${money(stats.credits_approved)} credits to take` : "") +
+                (stats.credits_open ? ` · ${money(stats.credits_open)} credits to review` : "")
+              : undefined
+          }
           tone="brand"
         />
         <Stat label="Wrong payments stopped" value={stats ? compactMoney(stats.prevented) : "-"} sub={stats ? `${stats.caught.length} invoices held or rejected` : undefined} tone="bad" />

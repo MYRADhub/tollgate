@@ -214,9 +214,15 @@ def stats(s: Session = Depends(get_session)):
     pending_approvals = len({(k, bc) if k == "bank_change" else (k, i) for k, bc, i in pending})
     scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status.in_(["scheduled", "released"]), Payment.run_id.is_not(None) | (Payment.status == "scheduled"))).scalar_one()
     discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
+    from .models import VendorCredit
+
+    credits_approved = s.execute(select(func.coalesce(func.sum(VendorCredit.amount), 0)).where(VendorCredit.status == "approved")).scalar_one() or 0  # applied ones are already in payment deductions
+    credits_open = s.execute(select(func.coalesce(func.sum(VendorCredit.amount), 0)).where(VendorCredit.status == "open")).scalar_one() or 0
     costed = s.execute(select(func.count(InvoiceCost.invoice_id), func.coalesce(func.sum(InvoiceCost.usd), 0), func.coalesce(func.sum(InvoiceCost.calls), 0))
                        .where(InvoiceCost.invoice_id.in_([i.id for i in invs]))).one()
     return {
+        "credits_approved": float(credits_approved),
+        "credits_open": float(credits_open),
         "cost": {
             "invoices": int(costed[0]),
             "usd": float(costed[1]),
@@ -759,6 +765,90 @@ def lab_evals():
     if not p.exists():
         return {"available": False}
     return {"available": True, **json.loads(p.read_text())}
+
+
+# --------------------------------------------------------------------------- vendor statements
+
+
+def _statement_row(s: Session, st) -> dict:
+    d = ser(st, ["id", "vendor_id", "vendor_name_raw", "source", "file_name", "statement_date", "vendor_balance", "our_balance", "status", "created_at"])
+    v = s.get(Vendor, st.vendor_id) if st.vendor_id else None
+    d["vendor"] = v.name if v else None
+    d["extraction"] = st.extraction
+    d["result"] = st.result
+    return d
+
+
+@app.get("/api/statements")
+def list_statements(s: Session = Depends(get_session)):
+    from .models import Statement, VendorCredit
+
+    rows = [_statement_row(s, st) for st in s.execute(select(Statement).order_by(Statement.id.desc())).scalars()]
+    credits = [ser(c, ["id", "vendor_id", "statement_id", "reference", "amount", "description", "status", "decided_by", "applied_invoice_id", "applied_invoice_number"])
+               for c in s.execute(select(VendorCredit).order_by(VendorCredit.id)).scalars()]
+    pending = s.execute(select(func.count(Job.id)).where(Job.kind == "statement", Job.status.in_(["queued", "running"]))).scalar_one()
+    return {"statements": rows, "credits": credits, "pending": pending}
+
+
+@app.get("/api/statements/{statement_id}/file")
+def statement_file(statement_id: int, s: Session = Depends(get_session)):
+    from .models import Statement
+
+    st = s.get(Statement, statement_id)
+    if st is None:
+        raise HTTPException(404)
+    return Response(get_store().get(st.file_key), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{st.file_name}"'})
+
+
+@app.post("/api/statements")
+async def upload_statement(request: Request, file: UploadFile = File(...), x_demo_user: str | None = Header(None)):
+    from . import statements
+
+    _rate_limit(request, arbitrary=True)
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024 or not data.startswith(b"%PDF"):
+        raise HTTPException(400, "Upload a PDF statement under 15 MB")
+    with session_scope() as s:
+        return {"id": statements.ingest(s, data, file.filename or "statement.pdf", actor=x_demo_user or "upload").id}
+
+
+@app.get("/api/demo/statements")
+def demo_statement_list():
+    from .statements import demo_statements
+
+    return [{"index": i, "file_name": f, "title": t, "expectation": e} for i, (f, t, e, _) in enumerate(demo_statements())]
+
+
+@app.get("/api/demo/statements/{index}/file")
+def demo_statement_file(index: int):
+    from .statements import demo_statements
+
+    items = demo_statements()
+    if not 0 <= index < len(items):
+        raise HTTPException(404)
+    return Response(items[index][3], media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{items[index][0]}"'})
+
+
+@app.post("/api/demo/statements")
+def demo_statement_load(request: Request, indexes: list[int] | None = None):
+    from . import statements
+
+    items = statements.demo_statements()
+    chosen = [items[i] for i in (indexes if indexes is not None else range(len(items))) if 0 <= i < len(items)]
+    _rate_limit(request, max(len(chosen), 1))
+    with session_scope() as s:
+        return {"ids": [statements.ingest(s, pdf, name, source="email", actor="email:vendor").id for name, _t, _e, pdf in chosen]}
+
+
+class CreditDecision(Actor):
+    approve: bool
+
+
+@app.post("/api/credits/{credit_id}/decide")
+def decide_credit(credit_id: int, body: CreditDecision):
+    from . import statements
+
+    return _wrap(lambda s: ser(statements.decide_credit(s, credit_id, user=body.user, role=body.role, approve=body.approve), ["id", "status", "applied_invoice_number"]))
 
 
 # --------------------------------------------------------------------------- vendor inquiries

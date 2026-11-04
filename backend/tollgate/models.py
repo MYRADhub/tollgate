@@ -331,6 +331,44 @@ class VendorInquiry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class Statement(Base):
+    """A vendor's statement of account and its reconciliation against our books."""
+
+    __tablename__ = "statements"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vendor_id: Mapped[str | None] = mapped_column(ForeignKey("vendors.id"))
+    vendor_name_raw: Mapped[str | None] = mapped_column(String(200))
+    source: Mapped[str] = mapped_column(String(20), default="upload")
+    file_key: Mapped[str] = mapped_column(String(300))
+    file_name: Mapped[str] = mapped_column(String(300))
+    file_sha256: Mapped[str] = mapped_column(String(64))
+    statement_date: Mapped[date | None] = mapped_column(Date)
+    vendor_balance: Mapped[Decimal | None] = mapped_column(Money)
+    our_balance: Mapped[Decimal | None] = mapped_column(Money)
+    status: Mapped[str] = mapped_column(String(20), default="received")  # received | reading | reconciled | unmatched_vendor | failed
+    extraction: Mapped[dict | None] = mapped_column(JSON)
+    result: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VendorCredit(Base):
+    """A credit memo on a vendor's statement that we had not taken."""
+
+    __tablename__ = "vendor_credits"
+    __table_args__ = (UniqueConstraint("vendor_id", "reference"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vendor_id: Mapped[str] = mapped_column(ForeignKey("vendors.id"))
+    statement_id: Mapped[int | None] = mapped_column(ForeignKey("statements.id"))
+    reference: Mapped[str] = mapped_column(String(80))
+    amount: Mapped[Decimal] = mapped_column(Money)
+    description: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | approved | declined | applied
+    decided_by: Mapped[str | None] = mapped_column(String(120))
+    applied_invoice_id: Mapped[str | None] = mapped_column(String(12))
+    applied_invoice_number: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class InvoiceCost(Base):
     """Model usage charged to one invoice. No foreign key: usage is flushed
     after the job's transaction, and the invoice may have been reset since."""

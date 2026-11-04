@@ -62,7 +62,7 @@ def test_reply_is_threaded_to_invoice(db):
 def test_new_invoice_by_email(db):
     with session_scope() as s:
         r = handle_inbound(s, _msg("Invoice attached", pdf=True))
-        assert r and "new invoice" in r
+        assert r and "new document" in r
         assert s.execute(select(Invoice).where(Invoice.source == "email")).scalar_one()
 
 

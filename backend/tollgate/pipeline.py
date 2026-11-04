@@ -17,6 +17,7 @@ from .extraction import extract, extract_from_text
 from .injection import screen
 from .models import (
     Contract,
+    Severity,
     ContractTerm,
     ServiceMetric,
     Finding,
@@ -234,11 +235,32 @@ def contract_recoveries(s: Session, inv: Invoice, findings: list[checks.FindingD
     return out
 
 
+def statement_findings(s: Session, inv: Invoice, findings: list[checks.FindingData]) -> list[checks.FindingData]:
+    """From the vendor's latest reconciled statement: an invoice they do not list
+    (blocking), and credit memos a controller approved claiming (recoveries)."""
+    from . import statements
+    from .models import Statement
+
+    if not inv.vendor_id or inv.source == "lab":
+        return []
+    out = []
+    st = s.execute(select(Statement).where(Statement.vendor_id == inv.vendor_id, Statement.status == "reconciled").order_by(Statement.id.desc())).scalars().first()
+    if st is not None and any(x["kind"] == "not_on_statement" and x.get("invoice_id") == inv.id for x in (st.result or {}).get("items", [])):
+        out.append(checks.FindingData("NOT_ON_VENDOR_STATEMENT", Severity.block, "The vendor's own statement does not list this invoice",
+                                      f"{inv.vendor.name if inv.vendor else 'The vendor'}'s statement dated {st.statement_date} lists their open invoices and this is not one of them. "
+                                      "A real invoice appears on the vendor's statement; ask them to confirm they issued it.",
+                                      {"statement_id": st.id}, inv.total))
+    taken = sum((f.amount_at_risk or Decimal(0) for f in findings if f.severity == Severity.recover), Decimal(0))
+    out.extend(statements.credit_recoveries(s, inv, taken))
+    return out
+
+
 def run_controls(s: Session, inv: Invoice) -> checks.CheckResult:
     _set_status(s, inv, InvoiceStatus.checking)
     result = checks.run_checks(to_check_input(inv), build_context(s, inv))
     inv.vendor_id = result.vendor.id if result.vendor else None
     result.findings.extend(contract_recoveries(s, inv, result.findings))
+    result.findings.extend(statement_findings(s, inv, result.findings))
 
     # Keep human resolutions of findings that recur; drop findings no longer true.
     previous = {(f.code, f.title): f for f in inv.findings}

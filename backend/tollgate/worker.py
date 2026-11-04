@@ -43,6 +43,10 @@ def _run_job(job_id: int) -> None:
             mailer.handle_vendor_reply(s, inv, int(job.payload["email_id"]))
         elif job.kind == "followup" and inv is not None:
             agent.followup(s, inv)
+        elif job.kind == "statement":
+            from . import statements
+
+            statements.process(s, int(job.payload["statement_id"]))
         elif job.kind == "inquiry":
             from . import inquiry
 

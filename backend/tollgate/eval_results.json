@@ -1,5 +1,5 @@
 {
- "ran_at": "2026-11-04T17:06:42.454230+00:00",
+ "ran_at": "2026-11-04T18:49:25.625952+00:00",
  "runs_per_case": 3,
  "models": {
   "vision": "qwen3.8-27b",
@@ -7,8 +7,8 @@
   "critic": "glm-5.3-flash",
   "safety": "nemotron-3.5-content-safety"
  },
- "passed": 110,
- "total": 111,
+ "passed": 116,
+ "total": 117,
  "seconds": 263.0,
  "suites": {
   "attacks": [
@@ -268,6 +268,20 @@
     "runs": 3,
     "passed": 3,
     "model_drafts": 3
+   }
+  ],
+  "statements": [
+   {
+    "case": "kestrel",
+    "name": "Kestrel statement read and reconciled",
+    "runs": 3,
+    "passed": 3
+   },
+   {
+    "case": "brightline",
+    "name": "Brightline statement read and reconciled",
+    "runs": 3,
+    "passed": 3
    }
   ]
  }

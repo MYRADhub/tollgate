@@ -35,6 +35,7 @@ Paying a vendor invoice looks simple and is not. Before a company pays, someone 
 | Contains hidden text instructing the AI | Finds text that is in the file but invisible on the page, quarantines it, shows a person what it said |
 | Comes from a lookalike vendor, or is split to stay under the approval limit | Blocks it: never treated as the real vendor; split invoices need the approval their total would |
 | Offers 2/10 net 15 | The payment run pays it early when cash allows, because 2% in 10 days is worth about 149% a year |
+| A vendor sends a statement of account | Explains the gap between their balance and ours to the cent: asks for invoices we never received, sends remittance details for payments they never applied, proposes claiming credit memos we never took, and holds any invoice in our books that the vendor's own statement does not list |
 | A vendor emails "when will we be paid?" or "why were we short-paid?" | Answers from the ledger, for that vendor's own invoices only, quoting the contract deduction; refuses bank changes by email and tells a lookalike sender nothing |
 
 ## Design: the model reads and writes, code decides
@@ -82,13 +83,27 @@ Vendors email AP to ask about payments all day. The **Vendor questions** page (o
 - **What was said:** every amount, date (in any spelling), invoice reference and long digit run in the model's draft must appear in those facts, and no other supplier may be named; otherwise the reply is built from a template.
 - **Bank details are never changed by email**, even from the registered address. Automatic replies are not answered, and replies per sender are capped.
 
+### Vendor statements
+
+A statement is the vendor's view of what we owe. The vision model transcribes it (each amount is checked against the PDF's text layer, and the lines must add up to the printed balance). Then code matches every line against the ledger and produces a list of differences whose effects sum exactly to the gap between their balance and ours:
+
+| On their statement | Our books | Tollgate |
+|---|---|---|
+| An invoice we never received | nothing | Asks for a copy. A statement line is never paid on its own |
+| An invoice we paid | paid | Sends the payment date, amount and account so they apply it |
+| A resubmitted duplicate, or the original of a corrected invoice | rejected / superseded | Explains why it is not owed |
+| A credit memo | never taken | A controller approves the claim; it comes off a scheduled payment or the next invoice, with remittance advice, and the critic sees it |
+| nothing | an open invoice | Holds the invoice (a new blocking control) and asks the vendor to confirm they issued it |
+
+In the demo, Kestrel's statement shows why they resubmitted KFL-88812 (they never applied our Nov 1 payment) and a $320 damage credit. Brightline's statement does not list BIS-2090, the invoice carrying hidden AI instructions: Brightline never issued it.
+
 ### Cost per invoice
 
 Every model call made while working an invoice is charged to it. On the real models the demo inbox costs about **$0.0033 per invoice** (29 calls for 10 invoices). For comparison, Ardent Partners' 2025 *AP Metrics That Matter* puts best-in-class AP teams at $2.78 per invoice. Their figure is fully loaded, while ours covers model usage only, so the comparison is indicative.
 
 ## Evaluation on the real models
 
-`uv run python -m tollgate.evals --runs 3` runs five suites on fresh databases against Vultr Serverless Inference. Latest results (`backend/tollgate/eval_results.json`, also shown in the attack lab):
+`uv run python -m tollgate.evals --runs 3` runs six suites on fresh databases against Vultr Serverless Inference. Latest results (`backend/tollgate/eval_results.json`, also shown in the attack lab):
 
 | Suite | Passed |
 |---|---|
@@ -97,9 +112,10 @@ Every model call made while working an invoice is charged to it. On the real mod
 | Contract terms extracted exactly, with verbatim quotes (6 contracts) | 18/18 |
 | Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 17/18 |
 | Vendor questions: correct answer, nothing disclosed to the wrong sender, bank details unchanged (6 cases) | 18/18 |
-| **Total** | **110/111** |
+| Vendor statements: every line read exactly, reconciliation fully explained (2 statements) | 6/6 |
+| **Total** | **116/117** |
 
-The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 105 unit and integration tests and 15 browser tests (see Running locally).
+The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 119 unit and integration tests and 16 browser tests (see Running locally).
 
 ## Vultr services used
 
@@ -138,9 +154,10 @@ Model choices were measured, not assumed: with thinking on, GLM-5.3 spent its wh
 6. Open **Granite GE-5561**, click **Log goods received**: it pays, net of the price-cap deduction.
 7. **Payment runs**: the agent took Lumen's 2% discount (149% a year) and left Brightline's 1% (18% a year) because cash above the floor ran out. Approve the run and download the bank file.
 8. **Contracts**: every term with its clause highlighted in the contract. Paste a new contract and watch the model propose terms for review.
-9. **Vendor questions**: send "Why were we short-paid?" as Polaris, then "Impersonates a vendor" and "Asks to change bank details".
-10. **Attack lab**: launch any attack, or upload your own PDF.
-11. **Audit trail → Verify chain.**
+9. **Statements → Load demo statements**: every cent of each gap explained; BIS-2090 is not on Brightline's statement; claim Kestrel's $320 credit as the controller.
+10. **Vendor questions**: send "Why were we short-paid?" as Polaris, then "Impersonates a vendor" and "Asks to change bank details".
+11. **Attack lab**: launch any attack, or upload your own PDF.
+12. **Audit trail → Verify chain.**
 
 ## Running locally
 

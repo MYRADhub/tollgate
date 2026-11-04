@@ -118,9 +118,14 @@ def handle_inbound(s: Session, raw: bytes) -> str | None:
         enqueue(s, "vendor_reply", inv.id, {"email_id": rec.id})
         return f"reply for {inv.id}"
     if atts:
+        from . import statements
+
         for name, data in atts:
-            ingest(s, data, name, source="email", source_ref=f"{sender}: {subject}"[:300])
-        return f"{len(atts)} new invoice(s) from {sender}"
+            if statements.looks_like_statement(name, subject):
+                statements.ingest(s, data, name, source="email", actor=f"email:{sender}")
+            else:
+                ingest(s, data, name, source="email", source_ref=f"{sender}: {subject}"[:300])
+        return f"{len(atts)} new document(s) from {sender}"
     if body or subject:
         headers = {k: str(msg.get(k)) for k in ("Authentication-Results", "Auto-Submitted", "Precedence") if msg.get(k)}
         enqueue(s, "inquiry", None, {"email_id": rec.id, "headers": headers})

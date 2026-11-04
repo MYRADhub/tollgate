@@ -29,7 +29,8 @@ Work independently, in this order:
    measurements, work out yourself how much Halden Robotics should pay on this invoice. Apply only what
    the contract text actually says (prices, tiers, credits, caps); tax is charged on the line amounts.
 2. Then compare with the proposal: is each deduction supported by the quoted clause, for the right period,
-   tier and lines? Is anything owed to us missing? Is the arithmetic right? Is the approval level right?
+   tier and lines? A deduction may instead be a credit memo the vendor issued, listed under VENDOR CREDITS.
+   Is anything owed to us missing? Is the arithmetic right? Is the approval level right?
 
 Verdict: "agree" if the proposal is correct; "concerns" if defensible but a person should check something
 specific; "disagree" if an amount or deduction is wrong or unsupported.
@@ -72,6 +73,10 @@ def _context(s: Session, inv: Invoice, proposal: dict) -> str:
     po_lines = "\n".join(f"  {pl.sku} | ordered {pl.quantity.normalize():f} at {pl.unit_price} | received {received.get(pl.sku, 0)}" for pl in po.lines) if po else "  none"
     ctext = "\n\n".join(f"--- {c.title} ---\n{c.text}" for c in contracts) or "none on file"
     mtext = "\n".join(f"  {m.period} {m.metric} = {m.value} ({m.source})" for m in metrics) or "  none"
+    from .models import VendorCredit
+
+    credits = list(s.execute(select(VendorCredit).where(VendorCredit.vendor_id == inv.vendor_id, VendorCredit.status == "approved")).scalars()) if inv.vendor_id else []
+    ctext_credits = "\n".join(f"  {c.reference}: {c.amount} ({c.description}), claim approved by {c.decided_by}" for c in credits) or "  none"
     import json
 
     return f"""INVOICE {inv.number} from {inv.vendor.name if inv.vendor else inv.vendor_name_raw}, dated {inv.invoice_date}
@@ -87,6 +92,9 @@ SERVICE MEASUREMENTS (our monitoring):
 
 VENDOR CONTRACT:
 {ctext}
+
+VENDOR CREDITS (credit memos on the vendor's own statement, not yet taken):
+{ctext_credits}
 
 PROPOSAL UNDER REVIEW:
 {json.dumps(proposal, indent=1)}"""

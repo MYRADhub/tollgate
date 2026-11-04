@@ -150,6 +150,24 @@ test.describe.serial("guided demo, end to end", () => {
     expect((await (await request.get(`${API}/api/invoices`)).json()).length).toBe(before);
   });
 
+  test("statements: every cent explained, a forged invoice exposed, a credit claimed", async ({ page, request }) => {
+    await page.goto("/statements");
+    await actAs(page, "Sam Patel");
+    await page.getByRole("button", { name: "Load demo statements" }).click();
+    await expect(page.getByText("Two vendor statements arrived").first()).toBeVisible();
+    await settle(request);
+    await page.reload();
+    await expect(page.getByText("Every cent of the difference is explained below.")).toHaveCount(2);
+    const bis2090 = page.locator("li", { hasText: "BIS-2090" });
+    await expect(bis2090.getByText("Not on their statement")).toBeVisible();
+    await expect(page.locator("li", { hasText: "KFL-88812" }).getByText("Paid; they did not apply it").first()).toBeVisible();
+    const credit = page.locator("li", { hasText: "CM-4471" });
+    await credit.getByRole("button", { name: /Act as Rosa Kim \(Controller\) to claim/ }).click();
+    await credit.getByRole("button", { name: "Claim as Rosa Kim" }).click();
+    await expect(page.getByText("Credit CM-4471 claimed").first()).toBeVisible();
+    await expect(credit.getByText(/will come off their next invoice/)).toBeVisible();
+  });
+
   test("vendor questions: the ledger answers its own vendor, a lookalike gets nothing", async ({ page, request }) => {
     await page.goto("/inquiries");
     await page.getByRole("button", { name: "Why were we short-paid?" }).click();
