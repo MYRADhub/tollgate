@@ -183,7 +183,7 @@ def apply_terms(
             if credit > 0:
                 out.append(Recovery(
                     "SLA_CREDIT", f"Service credit owed for {period}",
-                    f"Measured availability in {period} was {measured}% against a {p['commitment_pct']}% commitment, "
+                    f"Measured availability in {period} was {measured.normalize():f}% against a {p['commitment_pct']}% commitment, "
                     f"which earns a {tier['credit_pct']}% credit on {base:,.2f} of service charges. Owed back: {credit:,.2f}"
                     + (f" including {tax_rate * 100:.4g}% sales tax." if tax_rate else "."),
                     credit, {**ev, "period": period, "measured": str(measured), "credit_pct": tier["credit_pct"]},
