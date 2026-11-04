@@ -15,6 +15,7 @@ from sqlalchemy import select, update
 from . import agent, mailer, pipeline
 from .config import get_settings
 from .db import init_db, session_scope
+from .llm import flush_spend
 from .models import Invoice, Job, utcnow
 
 log = logging.getLogger("tollgate.worker")
@@ -70,6 +71,10 @@ def run_due_jobs(limit: int = 10) -> int:
                     audit.record(s, actor="system", kind="error", invoice_id=job.invoice_id, summary=f"{job.kind} failed: {err[:300]}")
         with session_scope() as s:
             s.execute(update(Job).where(Job.id == jid).values(status=status, last_error=err))
+        try:
+            flush_spend()
+        except Exception:
+            log.exception("could not record inference spend")
         n += 1
     return n
 

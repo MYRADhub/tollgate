@@ -12,7 +12,14 @@ class Settings(BaseSettings):
     inference_base_url: str = "https://api.vultrinference.com/v1"
     inference_api_key: str = ""
     model_vision: str = "qwen3.8-27b"
-    model_reasoning: str = "glm-5.3"
+    # Transcription does not benefit from a reasoning trace; turning it off cuts
+    # extraction from ~3.5s to ~1.6s per page with the same fields.
+    vision_thinking: bool = False
+    model_reasoning: str = "deepseek-v4.1-flash-1017"
+    # The policy guard, not the model's chain of thought, is what keeps actions
+    # safe; without thinking a plan takes ~2s instead of 10-40s and never
+    # exhausts its token budget before answering.
+    reasoning_thinking: bool = False
     model_safety: str = "nemotron-3.5-content-safety"
     llm_timeout_s: float = 120.0
     # Hard ceiling on inference spend (USD, all time). Above it the agent stops

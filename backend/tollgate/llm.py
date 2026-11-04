@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 from functools import lru_cache
 from typing import Any
@@ -38,17 +39,25 @@ PRICE_PER_TOKEN = {
 DEFAULT_PRICE = 0.000003
 
 
-def spent_usd() -> float:
-    from sqlalchemy import func, select
-
-    from .db import SessionLocal
-    from .models import InferenceSpend
-
-    with SessionLocal() as s:
-        return float(s.execute(select(func.coalesce(func.sum(InferenceSpend.usd), 0))).scalar_one())
+_pending: dict[str, list[float]] = {}
+_lock = threading.Lock()
 
 
 def _record(model: str, usage) -> None:
+    """Accumulate usage in memory; flush_spend() persists it outside any open
+    transaction (a nested write would deadlock SQLite)."""
+    if usage is None:
+        return
+    p, c = int(getattr(usage, "prompt_tokens", 0) or 0), int(getattr(usage, "completion_tokens", 0) or 0)
+    with _lock:
+        row = _pending.setdefault(model, [0, 0, 0, 0.0])
+        row[0] += 1
+        row[1] += p
+        row[2] += c
+        row[3] += (p + c) * PRICE_PER_TOKEN.get(model, DEFAULT_PRICE)
+
+
+def flush_spend() -> None:
     from decimal import Decimal
 
     from sqlalchemy import select
@@ -56,19 +65,41 @@ def _record(model: str, usage) -> None:
     from .db import session_scope
     from .models import InferenceSpend
 
-    if usage is None:
+    with _lock:
+        items = list(_pending.items())
+        _pending.clear()
+    if not items:
         return
-    p, c = int(getattr(usage, "prompt_tokens", 0) or 0), int(getattr(usage, "completion_tokens", 0) or 0)
-    cost = Decimal(str((p + c) * PRICE_PER_TOKEN.get(model, DEFAULT_PRICE)))
-    with session_scope() as s:
-        row = s.execute(select(InferenceSpend).where(InferenceSpend.model == model)).scalar_one_or_none()
-        if row is None:
-            row = InferenceSpend(model=model, calls=0, prompt_tokens=0, completion_tokens=0, usd=Decimal(0))
-            s.add(row)
-        row.calls += 1
-        row.prompt_tokens += p
-        row.completion_tokens += c
-        row.usd = (row.usd or Decimal(0)) + cost
+    try:
+        with session_scope() as s:
+            for model, (calls, p, c, usd) in items:
+                row = s.execute(select(InferenceSpend).where(InferenceSpend.model == model)).scalar_one_or_none()
+                if row is None:
+                    row = InferenceSpend(model=model, calls=0, prompt_tokens=0, completion_tokens=0, usd=Decimal(0))
+                    s.add(row)
+                row.calls += int(calls)
+                row.prompt_tokens += int(p)
+                row.completion_tokens += int(c)
+                row.usd = (row.usd or Decimal(0)) + Decimal(str(usd))
+    except Exception:
+        with _lock:
+            for model, vals in items:
+                row = _pending.setdefault(model, [0, 0, 0, 0.0])
+                for i in range(4):
+                    row[i] += vals[i]
+        raise
+
+
+def spent_usd() -> float:
+    from sqlalchemy import func, select
+
+    from .db import SessionLocal
+    from .models import InferenceSpend
+
+    with SessionLocal() as s:
+        stored = float(s.execute(select(func.coalesce(func.sum(InferenceSpend.usd), 0))).scalar_one())
+    with _lock:
+        return stored + sum(v[3] for v in _pending.values())
 
 
 @lru_cache
@@ -132,17 +163,23 @@ def chat(model: str, messages: list[dict], *, json_mode: bool = False, temperatu
         else:
             raise
     log.info("llm %s %.1fs usage=%s", model, time.monotonic() - t0, getattr(resp, "usage", None))
-    try:
-        _record(model, getattr(resp, "usage", None))
-    except Exception:
-        log.exception("could not record inference spend")
+    _record(model, getattr(resp, "usage", None))
     return resp
+
+
+NO_THINKING = {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
 
 
 def chat_json(model: str, messages: list[dict], **kw) -> Any:
     last: Exception | None = None
     for _ in range(2):
         resp = chat(model, messages, json_mode=True, **kw)
+        choice = resp.choices[0]
+        if not (choice.message.content or "").strip() and choice.finish_reason == "length":
+            # Reasoning used the whole budget before any answer; ask again without it.
+            log.warning("%s spent its token budget reasoning; retrying without thinking", model)
+            kw = {**kw, "extra_body": {**kw.get("extra_body", {}), **NO_THINKING}}
+            resp = chat(model, messages, json_mode=True, **kw)
         try:
             return parse_json(resp.choices[0].message.content or "")
         except (LLMError, json.JSONDecodeError) as e:

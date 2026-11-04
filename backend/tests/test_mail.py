@@ -66,6 +66,8 @@ def test_budget_guard_blocks_calls(db, monkeypatch):
 
     llm._record("glm-5.3", type("U", (), {"prompt_tokens": 1000, "completion_tokens": 1000})())
     assert abs(llm.spent_usd() - 0.006) < 1e-9
+    llm.flush_spend()
+    assert abs(llm.spent_usd() - 0.006) < 1e-9
     monkeypatch.setattr(get_settings(), "inference_budget_usd", 0.005)
     with pytest.raises(llm.BudgetExceeded):
         llm.chat("glm-5.3", [{"role": "user", "content": "hi"}])

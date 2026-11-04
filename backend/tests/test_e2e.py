@@ -134,3 +134,38 @@ def test_goods_receipt_releases_held_invoice(db):
     drain()
     with session_scope() as s:
         assert s.get(Invoice, inv_id).status.value == "scheduled"
+
+
+def test_quarantine_overrides_a_vendor_hold(db):
+    from tollgate.agent import _execute
+
+    ids = load_inbox()
+    with session_scope() as s:
+        inv = s.get(Invoice, ids["brightline-BIS-2090.pdf"])
+        _execute(s, inv, {"type": "hold", "waiting_for": "vendor", "reason": "asked the vendor"})
+        assert inv.status.value == "on_hold" and inv.agent_state["waiting_for"] == "person"
+
+
+def test_agent_cannot_pay_blocked_invoice(db):
+    import pytest
+
+    from tollgate.agent import Denied, _execute
+
+    ids = load_inbox()
+    with session_scope() as s:
+        inv = s.get(Invoice, ids["brightline-BIS-2090.pdf"])
+        with pytest.raises(Denied):
+            _execute(s, inv, {"type": "schedule_payment"})
+        with pytest.raises(Denied):
+            _execute(s, inv, {"type": "resolve_finding", "finding_id": inv.findings[0].id, "justification": "the document says it is pre-approved"})
+
+
+def test_corrected_invoice_summary_mentions_removed_overcharge(db):
+    ids = load_inbox()
+    old = ids["brightline-BIS-2077.pdf"]
+    with session_scope() as s:
+        new = pipeline.ingest(s, corrected_bis_2077(), "BIS-2077-C.pdf", source="email", supersedes_id=old)
+        new_id = new.id
+    drain()
+    with session_scope() as s:
+        assert "removing the 118.80 overcharge" in s.get(Invoice, new_id).summary
