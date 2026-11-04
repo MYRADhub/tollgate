@@ -158,6 +158,11 @@ def health():
     return {"ok": True, "inference": bool(settings.inference_api_key), "mail": settings.mail_enabled, "storage": "s3" if settings.s3_endpoint else "local"}
 
 
+def _last_reset():
+    with SessionLocal() as s:
+        return j(s.execute(select(AuditEvent.created_at).where(AuditEvent.kind == "seed").order_by(AuditEvent.id.desc())).scalars().first())
+
+
 @app.get("/api/config")
 def config():
     from .llm import spent_usd
@@ -172,10 +177,12 @@ def config():
         "inference": bool(settings.inference_api_key),
         "mail": settings.mail_enabled,
         "mailbox": settings.gmail_address or None,
+        "ap_address": settings.ap_address if settings.mail_enabled else None,
         "storage": "Vultr Object Storage" if settings.s3_endpoint else "local disk",
         "database": "PostgreSQL" if settings.database_url.startswith("postgres") else "SQLite",
         "controls": pipeline.checks_run(),
         "demo_mode": settings.demo_mode,
+        "last_reset_at": _last_reset(),
     }
 
 
@@ -922,7 +929,7 @@ def demo_inquiry(body: DemoInquiry, request: Request):
     m["Message-ID"] = make_msgid(domain="vendor.example.com")
     m.set_content(body.body)
     with session_scope() as s:
-        return {"ok": True, "result": mailer.handle_inbound(s, m.as_bytes())}
+        return {"ok": True, "result": mailer.handle_inbound(s, m.as_bytes(), from_demo=True)}
 
 
 # --------------------------------------------------------------------------- demo

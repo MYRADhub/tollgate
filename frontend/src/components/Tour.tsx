@@ -8,13 +8,15 @@ import { useFeedback } from "./Feedback";
 import { Button, cx } from "./ui";
 
 type Runs = { runs: { status: string }[] };
-type Attempt = { group: string };
+type Statements = { statements: unknown[] };
+type Inquiries = { items: unknown[] };
 
 export function Tour({ rows, onLoaded }: { rows: InvoiceRow[] | null; onLoaded: () => void }) {
   const fb = useFeedback();
   const seen = useSeen();
   const { data: runs } = useData<Runs>("/api/payment-runs");
-  const { data: attempts } = useData<Attempt[]>("/api/lab/attempts");
+  const { data: statements } = useData<Statements>("/api/statements");
+  const { data: inquiries } = useData<Inquiries>("/api/inquiries");
   const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState(false);
   const by = (n: string) => rows?.find((r) => r.number === n);
@@ -39,8 +41,9 @@ export function Tour({ rows, onLoaded }: { rows: InvoiceRow[] | null; onLoaded: 
     { title: "Find the instruction hidden for the AI", hint: "White, 1.5pt text in the PDF. Open the Document tab.", done: seen.has("BIS-2090"), href: link("BIS-2090") },
     { title: "Approve a payment as the controller", hint: "Ostara owes $1,416 back; the critic checked the figure.", done: by("OC-7720")?.status === "scheduled", href: link("OC-7720") },
     { title: "Play the vendor who overbilled", hint: "Reply with a corrected invoice and watch it get paid.", done: by("BIS-2077")?.status === "superseded", href: link("BIS-2077") },
+    { title: "Reconcile the vendors' statements", hint: "Brightline's own statement does not list BIS-2090. Claim Kestrel's $320 credit.", done: (statements?.statements.length || 0) > 0, href: (rows?.length || 0) > 0 ? "/statements" : null },
     { title: "Approve the payment run", hint: "It took the discount worth 149% a year.", done: !!runs?.runs.some((r) => r.status === "approved"), href: "/payments" },
-    { title: "Try to fool Tollgate", hint: "Launch an attack or upload your own PDF.", done: (attempts?.length || 0) > 0, href: "/lab" },
+    { title: "Email AP as a vendor", hint: "Ask why Polaris was short-paid, then try a lookalike domain.", done: (inquiries?.items.length || 0) > 0, href: "/inquiries" },
   ];
   const doneCount = steps.filter((s) => s.done).length;
   const next = steps.findIndex((s) => !s.done);
@@ -50,9 +53,9 @@ export function Tour({ rows, onLoaded }: { rows: InvoiceRow[] | null; onLoaded: 
       <button onClick={() => setOpen((x) => !x)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
         <Compass className="h-5 w-5 text-indigo-600" />
         <div className="flex-1">
-          <div className="text-sm font-semibold text-slate-900">Guided demo: seven things to try</div>
+          <div className="text-sm font-semibold text-slate-900">Guided demo: eight things to try</div>
           <div className="text-xs text-slate-500">
-            {doneCount === steps.length ? "All done. Reset the demo to start again." : `${doneCount} of ${steps.length} done. About five minutes.`}
+            {doneCount === steps.length ? "All done. Reset the demo to start again." : `${doneCount} of ${steps.length} done. About six minutes.`}
           </div>
         </div>
         <div className="hidden h-1.5 w-40 overflow-hidden rounded-full bg-indigo-100 sm:block">
@@ -105,6 +108,20 @@ export function Tour({ rows, onLoaded }: { rows: InvoiceRow[] | null; onLoaded: 
             );
           })}
         </ol>
+      )}
+      {open && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 text-xs text-slate-500">
+          <span>Also try:</span>
+          <Link href="/lab" className="text-indigo-600 hover:underline">
+            the attack lab, with your own PDF
+          </Link>
+          <Link href="/contracts" className="text-indigo-600 hover:underline">
+            pasting a new contract
+          </Link>
+          <Link href="/audit" className="text-indigo-600 hover:underline">
+            verifying the audit chain
+          </Link>
+        </div>
       )}
     </section>
   );

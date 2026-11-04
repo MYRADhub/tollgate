@@ -50,7 +50,7 @@ def _run_job(job_id: int) -> None:
         elif job.kind == "inquiry":
             from . import inquiry
 
-            inquiry.handle(s, int(job.payload["email_id"]), job.payload.get("headers"))
+            inquiry.handle(s, int(job.payload["email_id"]), job.payload.get("headers"), simulate=bool(job.payload.get("simulate")))
         elif job.kind == "plan_run":
             from sqlalchemy import select as _select
 

@@ -186,7 +186,7 @@ function InquiryCard({ q }: { q: Inquiry }) {
 
 export default function InquiriesPage() {
   const { data, reload } = useData<{ pending: number; items: Inquiry[] }>("/api/inquiries");
-  const { data: cfg } = useData<{ mail: boolean; mailbox: string | null }>("/api/config");
+  const { data: cfg } = useData<{ mail: boolean; mailbox: string | null; ap_address?: string }>("/api/config");
   return (
     <div className="space-y-5">
       <div>
@@ -197,7 +197,9 @@ export default function InquiriesPage() {
           Suppliers email AP to ask when they will be paid and why a payment was lower than the invoice. Tollgate answers from the ledger, with guard rails written in code: it only
           answers the vendor&apos;s registered address or company domain, only about that vendor&apos;s own invoices, never changes bank details by email, and checks every amount,
           date and reference in the model&apos;s wording before anything is sent.
-          {cfg?.mail && cfg.mailbox ? " The AP inbox is live: real emails are answered the same way." : ""}
+          {cfg?.mail && cfg.mailbox
+            ? ` The AP inbox is live: email ${cfg.ap_address || cfg.mailbox} and you get a real reply. Questions sent from this page are answered here only, never emailed.`
+            : " Questions sent from this page are answered here only, never emailed."}
         </p>
       </div>
       <Composer onSent={reload} />

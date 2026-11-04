@@ -24,7 +24,10 @@ log = logging.getLogger(__name__)
 TAG = re.compile(r"\[TG-([0-9a-f]{12})\]")
 
 
-def send(s: Session, *, invoice_id: str | None, to: str, subject: str, body: str, attachments: list[tuple[str, bytes]] | None = None) -> EmailMessage:
+def send(s: Session, *, invoice_id: str | None, to: str, subject: str, body: str, attachments: list[tuple[str, bytes]] | None = None,
+         simulate: bool = False) -> EmailMessage:
+    """Send from the AP alias. simulate=True records the message without sending it: used for
+    anything a public visitor can trigger with an address they typed themselves."""
     cfg = get_settings()
     sender = cfg.ap_address
     msgid = make_msgid(domain=(sender.split("@")[-1] or "tollgate.local"))
@@ -36,7 +39,7 @@ def send(s: Session, *, invoice_id: str | None, to: str, subject: str, body: str
 
         inv = s.get(_Inv, invoice_id)
         lab = inv is not None and inv.source == "lab"
-    if cfg.mail_enabled and cfg.gmail_address and cfg.gmail_app_password and not lab:
+    if cfg.mail_enabled and cfg.gmail_address and cfg.gmail_app_password and not lab and not simulate:
         m = MimeMessage()
         m["From"] = f"Halden Robotics AP (Tollgate) <{cfg.gmail_address}>"
         m["Reply-To"] = sender
@@ -91,8 +94,9 @@ def _body(msg) -> str:
     return "\n".join(lines).strip()[:8000]
 
 
-def handle_inbound(s: Session, raw: bytes) -> str | None:
-    """Store one inbound email and queue the right work. Returns a short description."""
+def handle_inbound(s: Session, raw: bytes, *, from_demo: bool = False) -> str | None:
+    """Store one inbound email and queue the right work. Returns a short description.
+    from_demo marks mail composed on the public demo page: replies to it are never really sent."""
     from .pipeline import enqueue, ingest
 
     msg = email.message_from_bytes(raw, policy=email.policy.default)
@@ -128,7 +132,7 @@ def handle_inbound(s: Session, raw: bytes) -> str | None:
         return f"{len(atts)} new document(s) from {sender}"
     if body or subject:
         headers = {k: str(msg.get(k)) for k in ("Authentication-Results", "Auto-Submitted", "Precedence") if msg.get(k)}
-        enqueue(s, "inquiry", None, {"email_id": rec.id, "headers": headers})
+        enqueue(s, "inquiry", None, {"email_id": rec.id, "headers": headers, "simulate": from_demo})
         return f"question from {sender}"
     return None
 

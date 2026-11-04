@@ -351,7 +351,7 @@ def should_answer(s: Session, raw_headers: dict[str, str], sender: str) -> str |
     return None
 
 
-def handle(s: Session, email_id: int, headers: dict[str, str] | None = None) -> VendorInquiry:
+def handle(s: Session, email_id: int, headers: dict[str, str] | None = None, *, simulate: bool = False) -> VendorInquiry:
     from . import mailer
     from .injection import scan_text
 
@@ -381,6 +381,8 @@ def handle(s: Session, email_id: int, headers: dict[str, str] | None = None) -> 
     skip = should_answer(s, hdr, rec.sender)
     if skip is None and sender.vendor is None and ask.intent == "other":
         skip = "not an accounts payable question from a known supplier"
+    if skip is None and sender.vendor is None and not simulate and not re.search(r"\b(dmarc|spf)=pass\b", hdr.get("authentication-results", ""), re.I):
+        skip = "unknown sender whose address the mail provider did not authenticate (replying could reach a forged address)"
     if skip:
         inq.outcome = f"not answered: {skip}"
         audit.record(s, actor="agent", kind="inquiry", summary=f"Did not answer {rec.sender} ({skip})")
@@ -390,7 +392,7 @@ def handle(s: Session, email_id: int, headers: dict[str, str] | None = None) -> 
     inq.reply_source = source
     inq.draft_problems = probs
     subj = rec.subject if rec.subject.lower().startswith("re:") else f"Re: {rec.subject}"
-    out = mailer.send(s, invoice_id=None, to=rec.sender, subject=subj[:300], body=text)
+    out = mailer.send(s, invoice_id=None, to=rec.sender, subject=subj[:300], body=text, simulate=simulate)
     inq.reply_email_id = out.id
     inq.outcome = "answered" if sender.vendor else "answered without disclosing anything"
     who = sender.vendor.name if sender.vendor else rec.sender

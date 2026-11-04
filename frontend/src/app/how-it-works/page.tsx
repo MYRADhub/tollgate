@@ -1,8 +1,8 @@
 "use client";
 
 import { ReactNode } from "react";
-import { ArrowDown, Bot, Cloud, Database, FileSearch, HardDrive, Lock, Mail, Server, ShieldCheck, Users } from "lucide-react";
-import { money, useData } from "@/lib/api";
+import { ArrowDown, Bot, Cloud, Cpu, Database, FileSearch, HardDrive, Lock, Mail, MailQuestion, Scale, Server, ShieldCheck, Users } from "lucide-react";
+import { Stats, microMoney, money, useData } from "@/lib/api";
 import { Card, Mono } from "@/components/ui";
 
 type Config = {
@@ -13,6 +13,9 @@ type Config = {
   inference: boolean;
   mail: boolean;
   mailbox: string | null;
+  ap_address?: string | null;
+  inference_spent_usd: number;
+  inference_budget_usd: number;
   storage: string;
   database: string;
   controls: string[];
@@ -41,6 +44,7 @@ const Down = () => (
 
 export default function HowItWorks() {
   const { data: c } = useData<Config>("/api/config");
+  const { data: stats } = useData<Stats>("/api/stats");
   return (
     <div className="space-y-6">
       <div>
@@ -83,6 +87,15 @@ export default function HowItWorks() {
           <Step icon={<Server className="h-4 w-4" />} title="8. The payment run" who="Deterministic optimiser, controller approves">
             Everything due within the week is paid; cash above the floor goes to early-payment discounts, best annual return first; the rest stays in the bank until due. The approved run produces the bank batch file.
           </Step>
+
+          <div className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Around the invoice</div>
+          <Step icon={<Scale className="h-4 w-4" />} title="Vendor statements, reconciled to the cent" who={`${c?.models.vision ?? "Vision model"} reads; code matches`}>
+            The vendor&apos;s statement of account is transcribed and grounded like an invoice, then every line is matched against the ledger. Each difference is explained and the explanations must sum exactly to the gap: invoices we never received (requested, never paid from the statement), payments they never applied (remittance details sent), credit memos we never took (claimed after a controller approves, deducted from the next payment), and invoices in our books the vendor does not list (held: a forged invoice never appears on the real vendor&apos;s statement).
+          </Step>
+          <Down />
+          <Step icon={<MailQuestion className="h-4 w-4" />} title="Vendor questions, answered from the ledger" who={`${c?.models.reasoning ?? "Reasoning model"} words it; code checks it`}>
+            &quot;When will we be paid?&quot; is answered only for the registered address or the vendor&apos;s own company domain, and only about that vendor&apos;s invoices; another vendor&apos;s invoice is treated as unknown. Bank details are never changed by email. Every amount, date, reference and digit run in the model&apos;s draft must come from the ledger, and no other supplier may be named, or the reply is built from a template.
+          </Step>
         </div>
 
         <div className="space-y-4">
@@ -106,6 +119,17 @@ export default function HowItWorks() {
               </li>
             </ul>
           </Card>
+          <Card title="What it costs">
+            <div className="space-y-1.5 text-[12.5px]">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-slate-500"><Cpu className="h-3.5 w-3.5" /> Model cost per invoice</span>
+                <span className="font-medium">{stats?.cost.per_invoice_usd ? microMoney(stats.cost.per_invoice_usd) : "load the inbox to measure"}</span>
+              </div>
+              <div className="flex justify-between"><span className="text-slate-500">Best-in-class AP team (Ardent Partners 2025)</span><span>{money(stats?.cost.benchmark_usd ?? 2.78)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Inference spent / hard cap</span><span>{c ? `${microMoney(c.inference_spent_usd)} / ${money(c.inference_budget_usd)}` : "-"}</span></div>
+              <p className="pt-1 text-[11px] text-slate-500">Model usage only; the benchmark is fully loaded. Above the cap the agent falls back to the text-layer reader and rule-based planner.</p>
+            </div>
+          </Card>
           <Card title="Live configuration">
             <div className="space-y-1.5 text-[12.5px]">
               <div className="flex justify-between"><span className="text-slate-500">Vision model</span><Mono>{c?.models.vision}</Mono></div>
@@ -113,7 +137,7 @@ export default function HowItWorks() {
               <div className="flex justify-between"><span className="text-slate-500">Critic model</span><Mono>{c?.models.critic}</Mono></div>
               <div className="flex justify-between"><span className="text-slate-500">Safety model</span><Mono>{c?.models.safety}</Mono></div>
               <div className="flex justify-between"><span className="text-slate-500">Inference connected</span><span>{c?.inference ? "yes" : "no (rule-based fallback)"}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">AP mailbox</span><span>{c?.mail ? c.mailbox : "simulated"}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">AP mailbox</span><span>{c?.mail ? c.ap_address || c.mailbox : "simulated"}</span></div>
               <div className="flex justify-between"><span className="text-slate-500">Database</span><span>{c?.database}</span></div>
               <div className="flex justify-between"><span className="text-slate-500">Files</span><span>{c?.storage}</span></div>
             </div>

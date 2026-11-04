@@ -121,6 +121,7 @@ export default function InvoicesPage() {
   const { data: rows, reload } = useData<InvoiceRow[]>(`/api/invoices${f.statuses ? `?status=${f.statuses.join(",")}` : ""}`);
   const { data: all, reload: reloadAll } = useData<InvoiceRow[]>("/api/invoices");
   const { data: stats } = useData<Stats>("/api/stats");
+  const { data: cfg } = useData<{ last_reset_at: string | null }>("/api/config");
 
   const upload = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -142,9 +143,12 @@ export default function InvoicesPage() {
   };
 
   const reset = async () => {
+    const recent = cfg?.last_reset_at && Date.now() - new Date(cfg.last_reset_at).getTime() < 15 * 60 * 1000;
     const ok = await fb.confirm({
       title: "Reset the demo company?",
-      body: "Clears every invoice, email, approval, payment run and lab attempt, and restores the vendors, POs and contracts.",
+      body:
+        "This demo is shared: a reset clears every invoice, email, approval, payment run, statement and lab attempt for everyone using it right now, then restores the vendors, POs and contracts." +
+        (recent ? ` Someone reset it ${ago(cfg!.last_reset_at!)}, so another visitor may be part-way through.` : ""),
       confirmLabel: "Reset",
       danger: true,
     });

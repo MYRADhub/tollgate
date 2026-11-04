@@ -30,13 +30,13 @@ test.describe.serial("guided demo, end to end", () => {
 
   test("dashboard starts empty and the guided demo loads the inbox", async ({ page, request }) => {
     await page.goto("/");
-    await expect(page.getByText("Guided demo: seven things to try").first()).toBeVisible();
+    await expect(page.getByText("Guided demo: eight things to try").first()).toBeVisible();
     await expect(page.getByText("No invoices yet").first()).toBeVisible();
     await page.getByRole("button", { name: "Load the demo inbox" }).click();
     await expect(page.getByText("Ten invoices are in the AP inbox").first()).toBeVisible();
     await settle(request);
     await expect(page.getByRole("link", { name: /Polaris Network Services/ }).first()).toBeVisible();
-    await expect(page.getByText("1 of 7 done").first()).toBeVisible();
+    await expect(page.getByText("1 of 8 done").first()).toBeVisible();
     await expect(page.getByText("Agent activity").first()).toBeVisible();
   });
 

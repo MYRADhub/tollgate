@@ -158,3 +158,67 @@ def test_a_model_cannot_route_a_bank_request_around_the_policy(monkeypatch):
 def test_demo_inquiry_validates_input(db):
     c = TestClient(app)
     assert c.post("/api/demo/inquiry", json={"sender": "nobody", "subject": "x", "body": "y"}).status_code == 400
+
+
+def test_composer_replies_are_never_really_sent(c, monkeypatch):
+    from tollgate import mailer
+
+    s_ = cfgmod.get_settings()
+    monkeypatch.setattr(s_, "mail_enabled", True)
+    monkeypatch.setattr(s_, "gmail_address", "ap.demo@gmail.com")
+    monkeypatch.setattr(s_, "gmail_app_password", "x")
+    sent = []
+    monkeypatch.setattr(mailer.smtplib, "SMTP_SSL", lambda *a, **k: sent.append(a) or (_ for _ in ()).throw(AssertionError("SMTP used")))
+    q = ask(c, "status", sender="stranger@example.org")
+    assert q["reply"]["status"] == "simulated" and not sent
+
+
+def test_real_inbound_mail_is_really_answered(c, monkeypatch):
+    from tollgate import mailer
+
+    s_ = cfgmod.get_settings()
+    monkeypatch.setattr(s_, "mail_enabled", True)
+    monkeypatch.setattr(s_, "gmail_address", "ap.demo@gmail.com")
+    monkeypatch.setattr(s_, "gmail_app_password", "x")
+
+    class FakeSMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def login(self, *a):
+            pass
+
+        def send_message(self, m):
+            FakeSMTP.sent.append(m["To"])
+
+    FakeSMTP.sent = []
+    monkeypatch.setattr(mailer.smtplib, "SMTP_SSL", FakeSMTP)
+    p = next(x for x in c.get("/api/demo/inquiry-presets").json() if x["key"] == "status")
+    raw = f"From: {p['sender']}\r\nTo: ap@x\r\nSubject: {p['subject']}\r\nMessage-ID: <real-1@x>\r\n\r\n{p['body']}\r\n".encode()
+    with session_scope() as s:
+        mailer.handle_inbound(s, raw)
+    drain()
+    assert FakeSMTP.sent == [p["sender"]]
+
+
+def test_unauthenticated_unknown_sender_gets_no_real_reply(c):
+    from tollgate import mailer
+
+    raw = b"From: someone@elsewhere.example\r\nTo: ap@x\r\nSubject: Payment status\r\nMessage-ID: <u-1@x>\r\n\r\nWhen will invoice BIS-2077 be paid?\r\n"
+    with session_scope() as s:
+        mailer.handle_inbound(s, raw)
+    drain()
+    q = c.get("/api/inquiries").json()["items"][0]
+    assert q["reply"] is None and "did not authenticate" in q["outcome"]
+    raw2 = raw.replace(b"<u-1@x>", b"<u-2@x>").replace(b"Subject", b"Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=elsewhere.example\r\nSubject")
+    with session_scope() as s:
+        mailer.handle_inbound(s, raw2)
+    drain()
+    q = c.get("/api/inquiries").json()["items"][0]
+    assert q["reply"] and "could not match" in q["reply"]["body"]

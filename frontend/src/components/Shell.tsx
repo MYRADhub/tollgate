@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useContext, useEffect, useState } from "react";
-import { Activity, BookCheck, Building2, ScrollText, FlaskConical, Gauge, Inbox, Landmark, MailQuestion, Network, Scale, ShieldCheck } from "lucide-react";
-import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, api, useData, useLiveFeed, useStoredActor } from "@/lib/api";
+import { Activity, BookCheck, Building2, ScrollText, FlaskConical, Gauge, Inbox, Landmark, MailQuestion, Network, Scale, ShieldCheck, Users } from "lucide-react";
+import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, ago, api, useData, useLiveFeed, useStoredActor } from "@/lib/api";
 import { FeedbackProvider } from "./Feedback";
 import { Logo } from "./Logo";
 import { cx } from "./ui";
@@ -123,6 +123,19 @@ function LiveTicker() {
   );
 }
 
+function SharedNotice() {
+  const { data } = useData<{ last_reset_at: string | null; demo_mode: boolean }>("/api/config");
+  if (!data?.demo_mode) return null;
+  return (
+    <span
+      className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 ring-1 ring-amber-200 sm:inline-flex"
+      title="Everyone who opens this demo works in the same company. If something changed under you, another visitor did it."
+    >
+      <Users className="h-3 w-3" /> Shared demo{data.last_reset_at ? `, reset ${ago(data.last_reset_at)}` : ""}
+    </span>
+  );
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const live = useLiveFeed();
   const [actor, setActor] = useStoredActor();
@@ -151,6 +164,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Logo className="h-5 w-5 text-slate-800" /> Tollgate
               </Link>
               <LiveTicker />
+              <SharedNotice />
             </div>
             <MobileNav />
             <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 md:px-6">{children}</main>
