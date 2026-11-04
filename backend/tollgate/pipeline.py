@@ -170,12 +170,15 @@ def build_context(s: Session, inv: Invoice) -> checks.CheckContext:
     for p in s.execute(q).scalars():
         if p.id == inv.supersedes_id:
             continue
+        if p.source == "lab" and inv.source != "lab":
+            continue  # attack-lab experiments never affect real invoices
         billed: dict[str, Decimal] = defaultdict(Decimal)
         for ln in p.lines:
             if ln.sku:
                 billed[ln.sku.upper()] += ln.quantity
         prior.append(checks.PriorInvoice(p.id, p.number, p.vendor_id, p.total, p.invoice_date, p.file_sha256, p.po_number, dict(billed)))
-    return checks.CheckContext(vendors=vendors, pos=pos, prior=prior, price_tolerance_pct=get_settings().price_tolerance_pct)
+    return checks.CheckContext(vendors=vendors, pos=pos, prior=prior, price_tolerance_pct=get_settings().price_tolerance_pct,
+                               auto_pay_limit=get_settings().auto_pay_limit)
 
 
 def to_check_input(inv: Invoice) -> checks.InvoiceData:
@@ -279,8 +282,8 @@ def run_controls(s: Session, inv: Invoice) -> checks.CheckResult:
 
 def checks_run() -> list[str]:
     return [
-        "hidden instructions", "extraction grounding", "vendor master", "vendor status", "bank account on file",
-        "duplicate file", "duplicate number", "resubmission", "line math", "subtotal", "total and tax",
+        "hidden instructions", "extraction grounding", "vendor master", "lookalike vendor", "tax ID", "vendor status", "bank account on file",
+        "duplicate file", "duplicate number", "resubmission", "split billing", "line math", "subtotal", "total and tax",
         "PO exists", "PO vendor", "PO open", "currency", "item on PO", "price vs PO", "qty vs ordered",
         "qty vs received", "payment terms",
     ]

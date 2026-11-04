@@ -28,6 +28,8 @@ PATTERNS = [
     r"(mark|set) (this )?(invoice )?(as )?(paid|approved|verified)",
     r"(update|change|replace) (the )?(vendor'?s? )?(bank|remit|payment) (account|details|info)",
     r"approve (this|the) (payment|invoice) (immediately|automatically|without)",
+    r"\b(ai|automated|llm)( processing)? (systems?|readers?|assistants?|agents?|models?)\b.{0,80}\b(approve|pay|skip|bypass|without review)",
+    r"\bwithout (human |manual )?review\b",
 ]
 _RX = [re.compile(p, re.I) for p in PATTERNS]
 

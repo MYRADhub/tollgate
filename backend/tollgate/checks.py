@@ -117,6 +117,7 @@ class CheckContext:
     pos: dict[str, POData]
     prior: list[PriorInvoice]
     price_tolerance_pct: float = 2.0
+    auto_pay_limit: float = 10_000.0
 
 
 @dataclass
@@ -147,18 +148,45 @@ def normalize_tax_id(t: str | None) -> str:
     return re.sub(r"[^0-9A-Za-z]", "", t or "").upper()
 
 
-def match_vendor(inv: InvoiceData, vendors: list[VendorData]) -> tuple[VendorData | None, int]:
+LEGAL_SUFFIX = re.compile(r"\b(inc|incorporated|llc|ltd|limited|gmbh|co|corp|corporation|company|plc|sa|ag|bv)\b\.?", re.I)
+
+
+def normalize_name(n: str | None) -> str:
+    s = LEGAL_SUFFIX.sub(" ", (n or "").lower())
+    s = re.sub(r"[^a-z0-9& ]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def classify_vendor(inv: InvoiceData, vendors: list[VendorData]) -> tuple[VendorData | None, int, str]:
+    """(vendor, score, how): how is tax_id | name | lookalike | tax_id_conflict | none.
+
+    A name that is close to, but not the same as, an approved vendor is the
+    classic impersonation trick (Brightiine for Brightline); it is never
+    treated as that vendor."""
     tid = normalize_tax_id(inv.vendor_tax_id)
     if tid:
         for v in vendors:
             if normalize_tax_id(v.tax_id) == tid:
-                return v, 100
+                return v, 100, "tax_id"
+    name = normalize_name(inv.vendor_name)
+    for v in vendors:
+        if name and name == normalize_name(v.name):
+            if tid and normalize_tax_id(v.tax_id) and tid != normalize_tax_id(v.tax_id):
+                return v, 100, "tax_id_conflict"
+            return v, 100, "name"
     best, best_score = None, 0
     for v in vendors:
-        score = int(fuzz.token_set_ratio((inv.vendor_name or "").lower(), v.name.lower()))
+        score = int(fuzz.ratio(name, normalize_name(v.name)))
         if score > best_score:
             best, best_score = v, score
-    return (best, best_score) if best_score >= 88 else (None, best_score)
+    if best is not None and best_score >= 80:
+        return best, best_score, "lookalike"
+    return None, best_score, "none"
+
+
+def match_vendor(inv: InvoiceData, vendors: list[VendorData]) -> tuple[VendorData | None, int]:
+    v, score, how = classify_vendor(inv, vendors)
+    return (v, score) if how in ("tax_id", "name") else (None, score)
 
 
 def _match_line(line: LineData, po: POData) -> POLineData | None:
@@ -204,8 +232,33 @@ def run_checks(inv: InvoiceData, ctx: CheckContext) -> CheckResult:
         )
 
     # --- vendor ---------------------------------------------------------------
-    vendor, vscore = match_vendor(inv, ctx.vendors)
-    if vendor is None:
+    resembles, vscore, how = classify_vendor(inv, ctx.vendors)
+    vendor = resembles if how in ("tax_id", "name") else None
+    if how == "lookalike":
+        findings.append(
+            FindingData(
+                "LOOKALIKE_VENDOR",
+                Severity.block,
+                f"Vendor name imitates {resembles.name}",
+                f"'{inv.vendor_name}' is {vscore}% similar to the approved vendor {resembles.name} but is not the same name"
+                + (f", and its tax ID {inv.vendor_tax_id} is not theirs" if inv.vendor_tax_id else ", and it gives no tax ID")
+                + ". Lookalike names are a common impersonation technique; it is not treated as that vendor.",
+                {"vendor_name": inv.vendor_name, "resembles": resembles.name, "similarity": vscore, "tax_id": inv.vendor_tax_id},
+                total,
+            )
+        )
+    elif how == "tax_id_conflict":
+        findings.append(
+            FindingData(
+                "TAX_ID_CONFLICT",
+                Severity.block,
+                f"Tax ID does not match {resembles.name}",
+                f"The invoice uses the name {resembles.name} but tax ID {inv.vendor_tax_id}; the vendor master has {resembles.tax_id}.",
+                {"tax_id": inv.vendor_tax_id, "master_tax_id": resembles.tax_id},
+                total,
+            )
+        )
+    elif vendor is None:
         findings.append(
             FindingData(
                 "UNKNOWN_VENDOR",
@@ -297,6 +350,30 @@ def run_checks(inv: InvoiceData, ctx: CheckContext) -> CheckResult:
                     + (", with a near-identical invoice number" if similar_number else ", dated within 45 days")
                     + ".",
                     {"prior_invoice_id": p.id, "prior_number": p.number},
+                    total,
+                )
+            )
+
+    # --- split billing --------------------------------------------------------
+    limit = Decimal(str(ctx.auto_pay_limit))
+    if vendor is not None and inv.total is not None and inv.invoice_date is not None and limit * Decimal("0.25") <= inv.total <= limit:
+        near = [
+            p for p in ctx.prior
+            if p.id != inv.id and p.vendor_id == vendor.id and p.total is not None and p.invoice_date is not None
+            and abs((p.invoice_date - inv.invoice_date).days) <= 7 and p.file_sha256 != inv.file_sha256
+            and normalize_number(p.number) != num
+        ]
+        combined = inv.total + sum((p.total for p in near), Decimal(0))
+        if near and combined > limit:
+            findings.append(
+                FindingData(
+                    "SPLIT_BILLING",
+                    Severity.block,
+                    "Looks split to stay under the approval limit",
+                    f"{len(near) + 1} invoices from {vendor.name} within 7 days total {money(combined)}, above the "
+                    f"{money(limit)} auto-pay limit, though each is below it ({', '.join(p.number or p.id for p in near)} and this one). "
+                    "Together they need the approval a single invoice of that size would.",
+                    {"related": [p.id for p in near], "combined": combined},
                     total,
                 )
             )

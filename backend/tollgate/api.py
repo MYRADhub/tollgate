@@ -142,7 +142,7 @@ def config():
 
 @app.get("/api/stats")
 def stats(s: Session = Depends(get_session)):
-    invs = list(s.execute(select(Invoice).where(Invoice.source != "history")).scalars())
+    invs = list(s.execute(select(Invoice).where(Invoice.source.not_in(["history", "lab"]))).scalars())
     by_status: dict[str, int] = {}
     for i in invs:
         by_status[i.status.value] = by_status.get(i.status.value, 0) + 1
@@ -168,10 +168,11 @@ def stats(s: Session = Depends(get_session)):
             old = s.get(Invoice, i.supersedes_id)
             if old and old.total and i.total:
                 corrected += max(old.total - i.total, Decimal(0))
-    recovered = s.execute(select(func.coalesce(func.sum(Payment.deductions), 0))).scalar_one() or 0
+    real = select(Invoice.id).where(Invoice.source != "lab")
+    recovered = s.execute(select(func.coalesce(func.sum(Payment.deductions), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
     pending_approvals = s.execute(select(func.count(Approval.id)).where(Approval.decision.is_(None))).scalar_one()
     scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status.in_(["scheduled", "released"]), Payment.run_id.is_not(None) | (Payment.status == "scheduled"))).scalar_one()
-    discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0))).scalar_one() or 0
+    discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
     return {
         "invoices": len(invs),
         "by_status": by_status,
@@ -191,7 +192,7 @@ def stats(s: Session = Depends(get_session)):
 
 @app.get("/api/invoices")
 def list_invoices(status: str | None = None, s: Session = Depends(get_session)):
-    q = select(Invoice).where(Invoice.source != "history").order_by(Invoice.created_at.desc())
+    q = select(Invoice).where(Invoice.source.not_in(["history", "lab"])).order_by(Invoice.created_at.desc())
     if status:
         q = q.where(Invoice.status.in_([InvoiceStatus(x) for x in status.split(",")]))
     return [invoice_row(i) for i in s.execute(q).scalars()]
@@ -581,6 +582,83 @@ def run_file(run_id: int, s: Session = Depends(get_session)):
     if r is None or r.status != "approved":
         raise HTTPException(404)
     return Response(bank_file(s, run_id), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="tollgate-run-{run_id}.csv"'})
+
+
+# --------------------------------------------------------------------------- attack lab
+
+
+@app.get("/api/lab/templates")
+def lab_templates():
+    from .lab import DEFAULT_BANK_NOTE, DEFAULT_HIDDEN, DEFAULT_VISIBLE, TEMPLATES
+
+    defaults = {"hidden_instruction": DEFAULT_HIDDEN, "visible_instruction": DEFAULT_VISIBLE, "bank_change": DEFAULT_BANK_NOTE}
+    return [{**t.__dict__, "default_text": defaults.get(t.key)} for t in TEMPLATES]
+
+
+class LabAttack(BaseModel):
+    template: str
+    text: str | None = None
+
+
+@app.post("/api/lab/attack")
+def lab_attack(body: LabAttack):
+    from .lab import BY_KEY, build
+
+    if body.template not in BY_KEY:
+        raise HTTPException(400, "unknown template")
+    _rate_limit()
+    with session_scope() as s:
+        seq = s.execute(select(func.count(Invoice.id)).where(Invoice.source == "lab")).scalar_one() + 1
+        ids = []
+        group = f"{body.template}-{seq}"
+        for name, pdf, _desc in build(body.template, body.text, seq):
+            inv = pipeline.ingest(s, pdf, name, source="lab", source_ref=group, actor="attack lab")
+            ids.append(inv.id)
+        return {"ids": ids, "group": group}
+
+
+@app.post("/api/lab/upload")
+async def lab_upload(file: UploadFile = File(...)):
+    _rate_limit()
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024 or not data.startswith(b"%PDF"):
+        raise HTTPException(400, "Upload a PDF under 15 MB")
+    with session_scope() as s:
+        seq = s.execute(select(func.count(Invoice.id)).where(Invoice.source == "lab")).scalar_one() + 1
+        inv = pipeline.ingest(s, data, file.filename or "upload.pdf", source="lab", source_ref=f"upload-{seq}", actor="attack lab")
+        return {"ids": [inv.id], "group": f"upload-{seq}"}
+
+
+@app.get("/api/lab/attempts")
+def lab_attempts(s: Session = Depends(get_session)):
+    from .lab import BY_KEY, outcome
+
+    groups: dict[str, dict] = {}
+    for inv in s.execute(select(Invoice).where(Invoice.source == "lab").order_by(Invoice.created_at.desc())).scalars():
+        g = inv.source_ref or inv.id
+        key = g.rsplit("-", 1)[0]
+        row = invoice_row(inv)
+        row["outcome"] = outcome(inv.status.value, row["blocking"])
+        row["checks"] = [f.code for f in inv.findings if f.severity.value == "block"]
+        grp = groups.setdefault(g, {"group": g, "template": key, "name": BY_KEY[key].name if key in BY_KEY else "Your upload",
+                                    "technique": BY_KEY[key].technique if key in BY_KEY else "Custom", "invoices": [], "created_at": row["created_at"]})
+        grp["invoices"].append(row)
+    out = []
+    for g in groups.values():
+        outs = [i["outcome"] for i in g["invoices"]]
+        g["outcome"] = "pending" if "pending" in outs else ("caught" if "caught" in outs else "missed")
+        out.append(g)
+    return out
+
+
+@app.get("/api/lab/evals")
+def lab_evals():
+    import pathlib
+
+    p = pathlib.Path(__file__).resolve().parent / "eval_results.json"
+    if not p.exists():
+        return {"available": False}
+    return {"available": True, **json.loads(p.read_text())}
 
 
 # --------------------------------------------------------------------------- demo

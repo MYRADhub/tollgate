@@ -109,7 +109,7 @@ def plan(candidates: list[Candidate], today: date, cash: Decimal, floor: Decimal
 
 def candidates(s: Session) -> list[Candidate]:
     out = []
-    rows = s.execute(select(Payment, Invoice).join(Invoice, Invoice.id == Payment.invoice_id).where(Payment.status == "scheduled", Payment.run_id.is_(None)))
+    rows = s.execute(select(Payment, Invoice).join(Invoice, Invoice.id == Payment.invoice_id).where(Payment.status == "scheduled", Payment.run_id.is_(None), Invoice.source != "lab"))
     for p, inv in rows:
         out.append(Candidate(p.id, inv.id, inv.number or inv.id, inv.vendor.name if inv.vendor else "?", p.amount,
                              p.due_date or p.scheduled_for, p.discount_pct, p.discount_deadline))

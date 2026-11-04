@@ -30,7 +30,13 @@ def send(s: Session, *, invoice_id: str | None, to: str, subject: str, body: str
     msgid = make_msgid(domain=(sender.split("@")[-1] or "tollgate.local"))
     rec = EmailMessage(invoice_id=invoice_id, direction="out", sender=sender, recipient=to, subject=subject, body=body, message_id=msgid,
                        attachments=[n for n, _ in (attachments or [])])
-    if cfg.mail_enabled and cfg.gmail_address and cfg.gmail_app_password:
+    lab = False
+    if invoice_id:
+        from .models import Invoice as _Inv
+
+        inv = s.get(_Inv, invoice_id)
+        lab = inv is not None and inv.source == "lab"
+    if cfg.mail_enabled and cfg.gmail_address and cfg.gmail_app_password and not lab:
         m = MimeMessage()
         m["From"] = f"Halden Robotics AP (Tollgate) <{cfg.gmail_address}>"
         m["Reply-To"] = sender

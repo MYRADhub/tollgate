@@ -195,3 +195,32 @@ def test_normalize_number(a, b):
 def test_vendor_fuzzy_name_match_without_tax_id():
     v, score = match_vendor(inv(vendor_name="ACME Industrial Supply, Inc.", vendor_tax_id=None), [ACME, OTHER])
     assert v is ACME and score >= 88
+
+
+def test_lookalike_vendor_is_not_that_vendor():
+    r = run_checks(inv(vendor_name="Acme Industria1 Supply", vendor_tax_id="99-0000001", remit_account="111222333"), ctx())
+    assert "LOOKALIKE_VENDOR" in codes(r)
+    assert r.vendor is None
+
+
+def test_real_name_with_wrong_tax_id_conflicts():
+    r = run_checks(inv(vendor_tax_id="11-1111111"), ctx())
+    assert "TAX_ID_CONFLICT" in codes(r)
+
+
+def test_legal_suffix_differences_still_match():
+    r = run_checks(inv(vendor_name="Acme Industrial Supply, LLC", vendor_tax_id=None), ctx())
+    assert r.findings == []
+
+
+def test_split_billing_under_the_limit():
+    prior = PriorInvoice("i0", "INV-3000", "v1", D("6000.00"), date(2026, 10, 1), "bbb", None)
+    big = [LineData("M8 hex bolts, box of 100", D(10), D("45.00"), D("450.00"), "BOLT-M8")]
+    r = run_checks(inv(total=D("6000.00"), subtotal=None, tax=None, lines=big), ctx(prior=[prior]))
+    assert "SPLIT_BILLING" in codes(r)
+
+
+def test_small_unrelated_invoices_are_not_split_billing():
+    prior = PriorInvoice("i0", "INV-3000", "v1", D("900.00"), date(2026, 10, 1), "bbb", None)
+    r = run_checks(inv(), ctx(prior=[prior]))
+    assert "SPLIT_BILLING" not in codes(r)
