@@ -20,6 +20,12 @@ from .models import Severity
 CENT = Decimal("0.01")
 
 
+def qty(x) -> str:
+    """Quantity for messages: 60.000 -> 60, 2.500 -> 2.5."""
+    d = Decimal(str(x)).normalize()
+    return f"{d:f}"
+
+
 def money(x) -> Decimal:
     return Decimal(str(x)).quantize(CENT, rounding=ROUND_HALF_UP)
 
@@ -306,7 +312,7 @@ def run_checks(inv: InvoiceData, ctx: CheckContext) -> CheckResult:
                     "LINE_MATH",
                     Severity.block,
                     f"Line {i + 1} does not add up",
-                    f"{ln.quantity} x {money(ln.unit_price)} = {expected}, but the line says {money(ln.amount)}.",
+                    f"{qty(ln.quantity)} x {money(ln.unit_price)} = {expected}, but the line says {money(ln.amount)}.",
                     {"line": i + 1, "expected": expected, "stated": ln.amount},
                     max(money(ln.amount) - expected, Decimal(0)) or None,
                 )
@@ -453,7 +459,7 @@ def run_checks(inv: InvoiceData, ctx: CheckContext) -> CheckResult:
                         "QTY_OVER_ORDERED",
                         Severity.block,
                         f"Line {i + 1} bills more than was ordered",
-                        f"{pl.sku}: ordered {pl.quantity}, already billed {billed_before}, this invoice {ln.quantity}.",
+                        f"{pl.sku}: ordered {qty(pl.quantity)}, already billed {qty(billed_before)}, this invoice {qty(ln.quantity)}.",
                         {"line": i + 1, "sku": pl.sku, "excess": excess},
                         money(excess * ln.unit_price),
                     )
@@ -465,8 +471,8 @@ def run_checks(inv: InvoiceData, ctx: CheckContext) -> CheckResult:
                         "QTY_NOT_RECEIVED",
                         Severity.block,
                         f"Line {i + 1} bills for goods not yet received",
-                        f"{pl.sku}: received {received}, already billed {billed_before}, this invoice {ln.quantity}. "
-                        f"{excess} unit(s) have no goods receipt.",
+                        f"{pl.sku}: received {qty(received)}, already billed {qty(billed_before)}, this invoice {qty(ln.quantity)}. "
+                        f"{qty(excess)} unit(s) have no goods receipt.",
                         {"line": i + 1, "sku": pl.sku, "excess": excess, "received": received},
                         money(excess * ln.unit_price),
                     )

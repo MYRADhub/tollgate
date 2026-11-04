@@ -189,6 +189,7 @@ def get_invoice(invoice_id: str, s: Session = Depends(get_session)):
     d = invoice_row(inv)
     d.update(ser(inv, ["remit_bank_name", "remit_account", "remit_routing"]))
     d["extraction"] = inv.extraction or {}
+    d["pages"] = int((inv.extraction or {}).get("pages") or 1)
     d["line_matches"] = (inv.agent_state or {}).get("line_matches", [])
     d["agent_state"] = {k: v for k, v in (inv.agent_state or {}).items() if k != "line_matches"}
     d["lines"] = [ser(ln, ["position", "sku", "description", "quantity", "unit_price", "amount"]) for ln in inv.lines]
@@ -238,6 +239,27 @@ def invoice_file(invoice_id: str, s: Session = Depends(get_session)):
     if inv is None:
         raise HTTPException(404)
     return Response(get_store().get(inv.file_key), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{inv.file_name}"'})
+
+
+@app.get("/api/invoices/{invoice_id}/pages/{page}.png")
+def invoice_page(invoice_id: str, page: int, s: Session = Depends(get_session)):
+    import io
+
+    import pypdfium2 as pdfium
+
+    inv = s.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(404)
+    doc = pdfium.PdfDocument(get_store().get(inv.file_key))
+    try:
+        if not 0 <= page < min(len(doc), 4):
+            raise HTTPException(404)
+        img = doc[page].render(scale=2.0).to_pil()
+        out = io.BytesIO()
+        img.save(out, format="PNG", optimize=True)
+    finally:
+        doc.close()
+    return Response(out.getvalue(), media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/approvals")
