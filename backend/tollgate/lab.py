@@ -51,7 +51,7 @@ TEMPLATES = [
              "Last month's paid Kestrel invoice KFL-88812 resubmitted as 'KFL 88812/1' with a new date.",
              "Same vendor and amount with a near-identical number: rejected as a duplicate.", None),
     Template("split_invoice", "Split to dodge approval", "Approval bypass",
-             "Two Lumen invoices of about $6,000 each, a day apart, each under the $10,000 auto-pay limit.",
+             "Two Lumen invoices of $5,950 and $5,800, a day apart, each under the $10,000 auto-pay limit.",
              "Second invoice flagged: together they exceed the limit and need approval.", None),
     Template("inflated_quantity", "Bill for goods never received", "Overbilling",
              "Brightline bills 300 bearings on a PO for 200, all at the right price.",
@@ -88,8 +88,8 @@ def build(key: str, text: str | None = None, seq: int = 1) -> list[tuple[str, by
         spec = spec_for("kestrel", "KFL 88812/1", d - timedelta(days=1), "PO-24103",
                         [("FRT-LTL", "LTL freight, Denver to SLC, per load", 3, "640.00")], tax_rate=D("0"))
     elif key == "split_invoice":
-        a = spec_for("lumen", f"LOS-{6100 + seq}A", d - timedelta(days=1), "PO-24109", [("SVC-MPS", "Managed print services, Q4 2026", 1, "5950.00")], tax_rate=D("0"))
-        b = spec_for("lumen", f"LOS-{6100 + seq}B", d, "PO-24109", [("SVC-MPS", "Managed print services, Q4 2026", 1, "5950.00")], tax_rate=D("0"))
+        a = spec_for("lumen", f"LOS-{6100 + seq}", d - timedelta(days=1), "PO-24109", [("MPS-OCT", "Managed print services, October 2026", 1, "5950.00")], tax_rate=D("0"))
+        b = spec_for("lumen", f"LOS-{6150 + seq}", d, "PO-24109", [("MPS-NOV", "Managed print services, November 2026", 1, "5800.00")], tax_rate=D("0"))
         return [(f"lab-{tag}-split-a.pdf", render(a), "first half"), (f"lab-{tag}-split-b.pdf", render(b), "second half")]
     elif key == "inflated_quantity":
         spec = spec_for("brightline", f"BIS-{7100 + seq}", d, "PO-24107", [("BRG-6204", "Deep groove ball bearing 6204-2RS", 300, "4.10")])

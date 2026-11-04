@@ -53,8 +53,8 @@ class Settings(BaseSettings):
     agent_max_steps: int = 8
 
     # Treasury, for payment runs
-    cash_balance_usd: float = 40_000.0
-    cash_floor_usd: float = 15_000.0
+    cash_balance_usd: float = 63_500.0
+    cash_floor_usd: float = 60_000.0
     run_horizon_days: int = 7
 
     # Public demo guard rails

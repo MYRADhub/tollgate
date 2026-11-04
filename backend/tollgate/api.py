@@ -27,6 +27,7 @@ from .models import (
     AuditEvent,
     Contract,
     ContractTerm,
+    CriticReview,
     ServiceMetric,
     BankChange,
     EmailMessage,
@@ -170,7 +171,7 @@ def stats(s: Session = Depends(get_session)):
                 corrected += max(old.total - i.total, Decimal(0))
     real = select(Invoice.id).where(Invoice.source != "lab")
     recovered = s.execute(select(func.coalesce(func.sum(Payment.deductions), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
-    pending_approvals = s.execute(select(func.count(Approval.id)).where(Approval.decision.is_(None))).scalar_one()
+    pending_approvals = s.execute(select(func.count(Approval.id)).where(Approval.decision.is_(None), Approval.invoice_id.in_(real))).scalar_one()
     scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status.in_(["scheduled", "released"]), Payment.run_id.is_not(None) | (Payment.status == "scheduled"))).scalar_one()
     discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
     return {
@@ -248,7 +249,16 @@ def get_invoice(invoice_id: str, s: Session = Depends(get_session)):
         for e in s.execute(select(AuditEvent).where(AuditEvent.invoice_id.in_(chain_ids)).order_by(AuditEvent.id)).scalars()
     ]
     d["superseded_by"] = s.execute(select(Invoice.id).where(Invoice.supersedes_id == inv.id)).scalar_one_or_none()
-    d["approval_needed"] = (required_role(inv.total or Decimal(0)) or None) and required_role(inv.total or Decimal(0)).value
+    d["critic"] = [
+        ser(r, ["id", "verdict", "summary", "points", "independent_amount", "model", "proposal", "created_at"])
+        for r in s.execute(select(CriticReview).where(CriticReview.invoice_id == inv.id).order_by(CriticReview.id)).scalars()
+    ]
+    d["controls_count"] = len(pipeline.checks_run())
+    d["min_role"] = (inv.agent_state or {}).get("min_role")
+    from .agent import needed_role
+
+    nr = needed_role(inv)
+    d["approval_needed"] = nr.value if nr else None
     return d
 
 
@@ -283,7 +293,7 @@ def invoice_page(invoice_id: str, page: int, s: Session = Depends(get_session)):
 
 @app.get("/api/approvals")
 def list_approvals(pending: bool = True, s: Session = Depends(get_session)):
-    q = select(Approval).order_by(Approval.id.desc())
+    q = select(Approval).where(Approval.invoice_id.in_(select(Invoice.id).where(Invoice.source != "lab"))).order_by(Approval.id.desc())
     if pending:
         q = q.where(Approval.decision.is_(None))
     out = []

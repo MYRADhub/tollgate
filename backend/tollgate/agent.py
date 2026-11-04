@@ -312,6 +312,8 @@ def clean_summary(s: Session, inv: Invoice) -> str:
 def _execute(s: Session, inv: Invoice, a: dict) -> str:
     t = a.get("type")
     v = inv.vendor
+    if inv.status == InvoiceStatus.rejected and t not in ("email_vendor", "email_budget_owner"):
+        return f"Skipped {t}: the invoice is already rejected"
     if t == "schedule_payment":
         blocking = open_blocking(inv)
         if blocking:
@@ -369,6 +371,9 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
         return f"On hold, waiting for {waiting}: {a.get('reason', '')}"
 
     if t == "request_approval":
+        blocking = open_blocking(inv)
+        if blocking:
+            raise Denied(f"request_approval refused: approval cannot clear {', '.join(f.code for f in blocking)}; hold for evidence or a person")
         role = Role(a.get("role", "controller"))
         need = needed_role(inv) or Role.controller
         if {Role.controller: 1, Role.cfo: 2}.get(role, 0) < {Role.controller: 1, Role.cfo: 2}[need]:

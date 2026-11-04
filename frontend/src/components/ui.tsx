@@ -48,11 +48,19 @@ export const FLAG_LABEL: Record<string, string> = {
   QTY_OVER_ORDERED: "Over ordered qty",
   QTY_NOT_RECEIVED: "Not received",
   TERMS_SHORTENED: "Short terms",
+  LOOKALIKE_VENDOR: "Lookalike vendor",
+  TAX_ID_CONFLICT: "Tax ID conflict",
+  SPLIT_BILLING: "Split billing",
+  SLA_CREDIT: "SLA credit owed",
+  VOLUME_PRICE: "Volume price owed",
+  PRICE_CAP: "Price cap owed",
 };
 
 export function Flag({ code, severity = "block" }: { code: string; severity?: string }) {
   const cls =
-    severity === "block"
+    severity === "recover"
+      ? "bg-sky-50 text-sky-800 ring-sky-200"
+      : severity === "block"
       ? "bg-rose-50 text-rose-700 ring-rose-200"
       : severity === "warn"
         ? "bg-amber-50 text-amber-800 ring-amber-200"

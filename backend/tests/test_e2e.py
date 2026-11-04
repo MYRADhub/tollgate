@@ -219,3 +219,14 @@ def test_receipt_then_pay_net_of_price_cap(db):
     with session_scope() as s:
         pay = s.execute(select(Payment).where(Payment.invoice_id == inv_id)).scalar_one()
         assert pay.deductions == Decimal("43.20")  # (96.50 - 94.50) x 20 x 1.08 tax
+
+
+def test_rejection_is_final_within_a_plan(db):
+    from tollgate.agent import _execute
+
+    ids = load_inbox()
+    with session_scope() as s:
+        inv = s.get(Invoice, ids["apex-ASA-0091.pdf"])
+        assert inv.status.value == "rejected"
+        assert "Skipped" in _execute(s, inv, {"type": "hold", "waiting_for": "person", "reason": "x"})
+        assert inv.status.value == "rejected"

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ReactNode, useState } from "react";
-import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, Hash, Mail, PackageCheck, ShieldAlert, ShieldCheck, User, XCircle } from "lucide-react";
-import { Approval, InvoiceDetail, ROLE_LABEL, api, money, useActor, useData } from "@/lib/api";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, PackageCheck, Scale, ShieldAlert, ShieldCheck, User, XCircle } from "lucide-react";
+import { Approval, CriticReview, InvoiceDetail, ROLE_LABEL, api, money, useActor, useData } from "@/lib/api";
 import { Button, Card, Empty, Flag, Mono, StatusPill, cx, maskAcct } from "@/components/ui";
 
 function useAct(reload: () => void) {
@@ -43,17 +43,22 @@ function Findings({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
     return (
       <Card title="Controls">
         <div className="flex items-center gap-2 text-sm text-emerald-700">
-          <CheckCircle2 className="h-4 w-4" /> All 20 controls passed.
+          <CheckCircle2 className="h-4 w-4" /> All {inv.controls_count} controls passed, and nothing is owed back under the contract.
         </div>
       </Card>
     );
   return (
-    <Card title={`Findings (${inv.findings.filter((f) => !f.resolved && f.severity === "block").length} blocking)`} pad={false}>
+    <Card
+      title={`Findings (${inv.findings.filter((f) => !f.resolved && f.severity === "block").length} blocking${inv.findings.some((f) => f.severity === "recover") ? `, ${money(inv.findings.filter((f) => f.severity === "recover" && !f.resolved).reduce((a, f) => a + (f.amount_at_risk || 0), 0))} owed to us` : ""})`}
+      pad={false}
+    >
       <ul className="divide-y divide-slate-100">
         {inv.findings.map((f) => (
           <li key={f.id} className={cx("px-4 py-3", f.resolved && "opacity-60")}>
             <div className="flex items-start gap-2.5">
-              {f.code === "PROMPT_INJECTION" ? (
+              {f.severity === "recover" ? (
+                <HandCoins className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+              ) : f.code === "PROMPT_INJECTION" ? (
                 <EyeOff className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
               ) : f.severity === "block" ? (
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
@@ -64,9 +69,20 @@ function Findings({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium text-slate-900">{f.title}</span>
                   <Flag code={f.code} severity={f.resolved ? "info" : f.severity} />
-                  {f.amount_at_risk ? <span className="text-xs font-medium text-rose-700">{money(f.amount_at_risk)} at risk</span> : null}
+                  {f.amount_at_risk ? (
+                    f.severity === "recover" ? (
+                      <span className="text-xs font-medium text-sky-700">{money(f.amount_at_risk)} owed to us</span>
+                    ) : (
+                      <span className="text-xs font-medium text-rose-700">{money(f.amount_at_risk)} at risk</span>
+                    )
+                  ) : null}
                 </div>
                 <p className="mt-0.5 text-[13px] leading-relaxed text-slate-600">{f.detail}</p>
+                {f.severity === "recover" && typeof f.evidence?.quote === "string" && (
+                  <blockquote className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] italic leading-relaxed text-sky-950">
+                    <span className="not-italic font-semibold">{String(f.evidence.contract)}:</span> &ldquo;{f.evidence.quote as string}&rdquo;
+                  </blockquote>
+                )}
                 {f.code === "PROMPT_INJECTION" && typeof f.evidence?.excerpt === "string" && (
                   <blockquote className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 font-mono text-[11.5px] leading-relaxed text-rose-900">
                     &ldquo;{f.evidence.excerpt as string}&rdquo;
@@ -230,6 +246,17 @@ function Actions({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
               <ShieldCheck className="h-4 w-4" /> {money(inv.payment.amount, inv.payment.currency)} scheduled for {inv.payment.scheduled_for}
             </div>
             <div className="mt-0.5 text-xs">To the verified account {maskAcct(inv.payment.pay_to_account)} on file for {inv.vendor?.name}.</div>
+            {(inv.payment.deductions > 0 || inv.payment.discount > 0 || inv.payment.discount_deadline) && (
+              <div className="mt-2 space-y-0.5 border-t border-emerald-200 pt-2 text-xs tabular-nums">
+                <div className="flex justify-between"><span>Invoice total</span><span>{money(inv.payment.gross)}</span></div>
+                {inv.payment.deductions > 0 && <div className="flex justify-between text-sky-800"><span>Owed to us under contract</span><span>-{money(inv.payment.deductions)}</span></div>}
+                {inv.payment.discount > 0 && <div className="flex justify-between"><span>Early-payment discount taken</span><span>-{money(inv.payment.discount)}</span></div>}
+                <div className="flex justify-between font-semibold"><span>{inv.payment.status === "released" ? "Released" : "To pay"}</span><span>{money(inv.payment.amount)}</span></div>
+                {inv.payment.discount_deadline && inv.payment.status === "scheduled" && (
+                  <div className="text-emerald-800">{inv.payment.discount_pct}% discount if paid by {inv.payment.discount_deadline}; the payment run decides.</div>
+                )}
+              </div>
+            )}
           </div>
         )}
         {inv.superseded_by && (
@@ -302,6 +329,47 @@ function Actions({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
   );
 }
 
+function CriticCard({ reviews }: { reviews: CriticReview[] }) {
+  if (!reviews.length) return null;
+  const r = reviews[reviews.length - 1];
+  const tone =
+    r.verdict === "agree" ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : r.verdict === "disagree" ? "bg-rose-50 ring-rose-200 text-rose-900" : "bg-amber-50 ring-amber-200 text-amber-900";
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          <Scale className="h-4 w-4 text-slate-500" /> Second opinion from the critic
+        </span>
+      }
+      action={<span className="font-mono text-[11px] text-slate-500">{r.model}</span>}
+    >
+      <div className={cx("rounded-lg p-3 ring-1", tone)}>
+        <div className="text-[13px]">
+          <b className="uppercase">{r.verdict}</b>: {r.summary}
+        </div>
+        {r.points.length > 0 && (
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[12.5px]">
+            {r.points.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-md bg-slate-50 p-2 ring-1 ring-slate-200">
+          <div className="text-slate-500">Proposed payment</div>
+          <div className="font-semibold tabular-nums">{money(Number(r.proposal.pay))}</div>
+        </div>
+        <div className="rounded-md bg-slate-50 p-2 ring-1 ring-slate-200">
+          <div className="text-slate-500">Critic&apos;s own figure</div>
+          <div className="font-semibold tabular-nums">{r.independent_amount !== null ? money(r.independent_amount) : "-"}</div>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">A different model recomputes what should be paid from the invoice, PO, receipts, contract and service measurements, without the proposer&apos;s reasoning. Disagreement sends the payment to the CFO.</p>
+    </Card>
+  );
+}
+
 function Emails({ inv }: { inv: InvoiceDetail }) {
   if (!inv.emails.length) return null;
   return (
@@ -332,6 +400,7 @@ function Timeline({ inv }: { inv: InvoiceDetail }) {
   const icon = (actor: string, kind: string) => {
     if (actor === "policy") return <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />;
     if (kind === "injection_detected") return <EyeOff className="h-3.5 w-3.5 text-rose-600" />;
+    if (actor === "critic") return <Scale className="h-3.5 w-3.5 text-amber-600" />;
     if (actor === "agent") return <Bot className="h-3.5 w-3.5 text-indigo-600" />;
     if (actor === "controls") return <ShieldCheck className="h-3.5 w-3.5 text-slate-600" />;
     if (actor.startsWith("email:")) return <Mail className="h-3.5 w-3.5 text-amber-600" />;
@@ -479,6 +548,7 @@ export default function InvoicePage() {
         <div className="space-y-4">
           <Findings inv={inv} reload={reload} />
           <ThreeWay inv={inv} />
+          <CriticCard reviews={inv.critic} />
           <Actions inv={inv} reload={reload} />
           <Emails inv={inv} />
         </div>

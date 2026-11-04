@@ -175,10 +175,11 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <Stat label="Invoices processed" value={stats?.decided ?? "-"} sub={stats ? `${stats.invoices} received${stats.queue ? `, ${stats.queue} in progress` : ""}` : undefined} />
         <Stat label="Paid with no human touch" value={stats ? `${Math.round(stats.touchless_rate * 100)}%` : "-"} sub={stats ? `${stats.touchless} clean invoices` : undefined} tone="brand" />
         <Stat label="Wrong payments stopped" value={stats ? compactMoney(stats.prevented) : "-"} sub={stats ? `${stats.caught.length} invoices held or rejected` : undefined} tone="bad" />
+        <Stat label="Recovered under contracts" value={stats ? compactMoney(stats.recovered + stats.discounts) : "-"} sub={stats ? `${money(stats.recovered)} owed back · ${money(stats.discounts)} discounts` : undefined} tone="brand" />
         <Stat label="Scheduled to pay" value={stats ? compactMoney(stats.scheduled_total) : "-"} sub="to verified accounts only" tone="good" />
         <Stat label="Waiting on a person" value={stats?.pending_approvals ?? "-"} sub="approvals pending" />
       </div>
@@ -236,10 +237,13 @@ export default function InvoicesPage() {
                         <StatusPill status={r.status} />
                       </td>
                       <td className="max-w-[420px] px-2 py-2.5">
-                        {r.flags.length > 0 && (
+                        {(r.flags.length > 0 || r.recover.length > 0) && (
                           <div className="mb-1 flex flex-wrap gap-1">
                             {r.flags.map((c) => (
                               <Flag key={c} code={c} />
+                            ))}
+                            {r.recover.map((c) => (
+                              <Flag key={c} code={c} severity="recover" />
                             ))}
                           </div>
                         )}

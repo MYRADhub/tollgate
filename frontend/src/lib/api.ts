@@ -181,12 +181,14 @@ export type InvoiceRow = {
   at_risk: number;
   waiting_for: string | null;
   supersedes_id: string | null;
+  recover: string[];
+  recover_amount: number;
 };
 
 export type Finding = {
   id: number;
   code: string;
-  severity: "info" | "warn" | "block";
+  severity: "info" | "warn" | "block" | "recover";
   title: string;
   detail: string;
   evidence: Record<string, unknown>;
@@ -257,12 +259,39 @@ export type InvoiceDetail = InvoiceRow & {
   } | null;
   approvals: Approval[];
   emails: { id: number; direction: "in" | "out"; sender: string; recipient: string; subject: string; body: string; attachments: string[]; status: string; created_at: string }[];
-  payment: { amount: number; currency: string; pay_to_account: string; scheduled_for: string; status: string } | null;
+  payment: {
+    gross: number | null;
+    deductions: number;
+    discount: number;
+    amount: number;
+    currency: string;
+    pay_to_account: string;
+    scheduled_for: string;
+    due_date: string | null;
+    discount_deadline: string | null;
+    discount_pct: number | null;
+    status: string;
+    run_id: number | null;
+  } | null;
+  critic: CriticReview[];
+  controls_count: number;
+  min_role: Role | null;
   bank_change: { id: number; old_account: string; new_account: string; new_bank_name: string; status: string; callback_note: string | null } | null;
   timeline: { id: number; actor: string; kind: string; summary: string; detail: Record<string, unknown>; created_at: string; hash: string; invoice_id: string }[];
   superseded_by: string | null;
   pages: number;
   approval_needed: Role | null;
+};
+
+export type CriticReview = {
+  id: number;
+  verdict: "agree" | "concerns" | "disagree" | "unavailable";
+  summary: string;
+  points: string[];
+  independent_amount: number | null;
+  model: string;
+  proposal: { invoice_total: string; pay: string; approval: string; deductions: { title: string; amount: string; clause: string | null }[] };
+  created_at: string;
 };
 
 export type Stats = {
@@ -272,6 +301,8 @@ export type Stats = {
   touchless: number;
   touchless_rate: number;
   prevented: number;
+  recovered: number;
+  discounts: number;
   caught: { id: string; number: string; codes: string[]; amount: number }[];
   pending_approvals: number;
   scheduled_total: number;

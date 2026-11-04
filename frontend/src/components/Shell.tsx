@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useContext, useEffect, useState } from "react";
-import { Activity, BookCheck, Building2, Gauge, Inbox, Network, ShieldCheck } from "lucide-react";
+import { Activity, BookCheck, Building2, ScrollText, FlaskConical, Gauge, Inbox, Landmark, Network, ShieldCheck } from "lucide-react";
 import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, api, useData, useLiveFeed, useStoredActor } from "@/lib/api";
 import { Logo } from "./Logo";
 import { cx } from "./ui";
@@ -11,7 +11,10 @@ import { cx } from "./ui";
 const NAV = [
   { href: "/", label: "Invoices", icon: Inbox },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck, badge: true },
+  { href: "/payments", label: "Payment runs", icon: Landmark },
+  { href: "/contracts", label: "Contracts", icon: ScrollText },
   { href: "/vendors", label: "Vendors & POs", icon: Building2 },
+  { href: "/lab", label: "Attack lab", icon: FlaskConical },
   { href: "/audit", label: "Audit trail", icon: BookCheck },
   { href: "/how-it-works", label: "How it works", icon: Network },
 ];
