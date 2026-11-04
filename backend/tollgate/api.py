@@ -35,6 +35,7 @@ from .models import (
     PurchaseOrder,
     Severity,
     Vendor,
+    utcnow,
 )
 from .storage import get_store
 
@@ -172,7 +173,8 @@ def stats(s: Session = Depends(get_session)):
         "caught": caught,
         "pending_approvals": pending_approvals,
         "scheduled_total": float(scheduled_total or 0),
-        "queue": s.execute(select(func.count(Job.id)).where(Job.status.in_(["queued", "running"]))).scalar_one(),
+        "queue": s.execute(select(func.count(Job.id)).where(Job.status.in_(["queued", "running"]), Job.run_after <= utcnow())).scalar_one(),
+        "scheduled_followups": s.execute(select(func.count(Job.id)).where(Job.status == "queued", Job.run_after > utcnow())).scalar_one(),
     }
 
 
