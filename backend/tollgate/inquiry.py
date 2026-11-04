@@ -325,8 +325,12 @@ def write_reply(s: Session, sender: Sender, ask: Ask, facts: dict | None, body: 
     known = {n.upper() for n in s.execute(select(Invoice.number).where(Invoice.number.is_not(None))).scalars()}
     others = [n for n in s.execute(select(Vendor.name).where(Vendor.id != sender.vendor.id)).scalars()]
     probs = verify_draft(draft, payload, known, others)
-    if ask.intent == "bank_change" and "never change" not in draft.lower() and "not change" not in draft.lower():
-        probs.append("the bank-change policy is missing")
+    if ask.intent == "bank_change":
+        low = draft.lower()
+        if "never change" not in low and "not change" not in low:
+            probs.append("the bank-change policy is missing")
+        if re.search(r"\b(have|has|we've|will|we'll)\s+(now\s+)?(updated|update|changed|change|switched|noted the new|recorded the new)\b[^.]{0,60}\b(account|bank|details|records)", low):
+            probs.append("the draft suggests the bank details were or will be changed")
     if not draft or probs:
         return tpl, "template", probs
     return draft, "model", []
@@ -363,7 +367,8 @@ def handle(s: Session, email_id: int, headers: dict[str, str] | None = None, *, 
     inq.vendor_id = sender.vendor.id if sender.vendor else None
     inq.match = sender.match
     inq.match_note = sender.note
-    ask = classify(rec.subject, rec.body)
+    # the model is only spent on senders we can verify
+    ask = classify(rec.subject, rec.body) if sender.vendor else classify_offline(rec.subject, rec.body)
     inq.intent = ask.intent
     inq.asked_about = ask.invoices
     flags: list[str] = []

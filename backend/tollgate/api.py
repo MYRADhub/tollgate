@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections import deque
 from contextlib import asynccontextmanager
@@ -804,7 +805,8 @@ def statement_file(statement_id: int, s: Session = Depends(get_session)):
     st = s.get(Statement, statement_id)
     if st is None:
         raise HTTPException(404)
-    return Response(get_store().get(st.file_key), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{st.file_name}"'})
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", st.file_name)[:120] or "statement.pdf"
+    return Response(get_store().get(st.file_key), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{safe}"'})
 
 
 @app.post("/api/statements")
@@ -844,7 +846,7 @@ def demo_statement_load(request: Request, indexes: list[int] | None = None):
     chosen = [items[i] for i in (indexes if indexes is not None else range(len(items))) if 0 <= i < len(items)]
     _rate_limit(request, max(len(chosen), 1))
     with session_scope() as s:
-        return {"ids": [statements.ingest(s, pdf, name, source="email", actor="email:vendor").id for name, _t, _e, pdf in chosen]}
+        return {"ids": [statements.ingest(s, pdf, name, source="demo", actor="email:vendor").id for name, _t, _e, pdf in chosen]}
 
 
 class CreditDecision(Actor):
@@ -921,7 +923,7 @@ def demo_inquiry(body: DemoInquiry, request: Request):
 
     if "@" not in body.sender or len(body.body) > 4000 or len(body.subject) > 200:
         raise HTTPException(400, "Give a sender address, a subject under 200 characters and a message under 4,000")
-    _rate_limit(request)
+    _rate_limit(request, arbitrary=True)
     m = Mime()
     m["From"] = body.sender.strip()
     m["To"] = settings.ap_address

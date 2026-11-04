@@ -24,7 +24,7 @@ import io
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -277,10 +277,23 @@ def our_open(s: Session, inv: Invoice) -> Decimal:
     return inv.total or Decimal(0)
 
 
+GRACE_DAYS = 3  # an invoice dated this close to (or after) the statement date may not be on it yet
+
+
 def reconcile(s: Session, vendor: Vendor, data: dict) -> dict:
-    ours = [i for i in s.execute(select(Invoice).where(Invoice.vendor_id == vendor.id, Invoice.source != "lab")).scalars() if i.number]
-    by_num = {i.number.upper(): i for i in ours}
+    ours = [i for i in s.execute(select(Invoice).where(Invoice.vendor_id == vendor.id, Invoice.source != "lab").order_by(Invoice.created_at)).scalars() if i.number]
+    groups: dict[str, list[Invoice]] = {}
+    for i in ours:
+        groups.setdefault(i.number.upper(), []).append(i)
+    # Several records can share a number (a resubmitted copy held as a duplicate): the statement line
+    # belongs to the live one, and the copies are accounted for with it.
+    by_num = {n: sorted(g, key=lambda i: (i.status in CLOSED or _duplicate(i) is not None, i.created_at))[0] for n, g in groups.items()}
     replaced_by = {i.supersedes_id: i for i in ours if i.supersedes_id}
+    st_refs = {ln["reference"] for ln in data["lines"]}
+    try:
+        st_date = date.fromisoformat(data.get("statement_date") or "")
+    except ValueError:
+        st_date = None
     payments = [p for p in s.execute(select(Payment).where(Payment.vendor_id == vendor.id, Payment.status.in_(["sent", "released"]))).scalars()]
     st_lines = data["lines"]
     vendor_pay = [ln for ln in st_lines if ln["type"] == "payment"]
@@ -300,14 +313,19 @@ def reconcile(s: Session, vendor: Vendor, data: dict) -> dict:
             inv = by_num.get(ln["reference"])
             if inv is not None and inv.status == InvoiceStatus.superseded and inv.id in replaced_by:
                 newer = replaced_by[inv.id]
-                used_inv.update({inv.id, newer.id})
-                item("corrected", ln, newer, amt - our_open(s, newer),
-                     f"They still show the original {ln['reference']} at {amt:,.2f}; it was replaced by corrected invoice {newer.number} for {newer.total:,.2f}.")
+                used_inv.update(x.id for x in groups[ln["reference"]])
+                if (newer.number or "").upper() in st_refs:
+                    # the corrected invoice has its own line; the original is simply not owed
+                    item("corrected", ln, inv, amt, f"They list both the original {ln['reference']} and the corrected {newer.number}; only the corrected one is owed.")
+                else:
+                    used_inv.add(newer.id)
+                    item("corrected", ln, newer, amt - our_open(s, newer),
+                         f"They still show the original {ln['reference']} at {amt:,.2f}; it was replaced by corrected invoice {newer.number} for {newer.total:,.2f}.")
                 continue
             if inv is None:
                 item("missing", ln, None, amt, f"{ln['reference']} ({amt:,.2f}) is not in our books: we never received it. Asking the vendor for a copy; a statement line is never paid on its own.")
                 continue
-            used_inv.add(inv.id)
+            used_inv.update(x.id for x in groups[ln["reference"]])
             paid = _paid(s, inv)
             dup = _duplicate(inv)
             if paid is not None:
@@ -348,6 +366,9 @@ def reconcile(s: Session, vendor: Vendor, data: dict) -> dict:
                 item("matched", ln, None, amt, "A payment we made.")
     for inv in ours:
         if inv.id in used_inv or our_open(s, inv) == 0:
+            continue
+        if st_date is None or inv.invoice_date is None or inv.invoice_date > st_date - timedelta(days=GRACE_DAYS):
+            item("too_recent", None, inv, -our_open(s, inv), f"Dated {inv.invoice_date or 'unknown'}, too close to the statement date to be expected on it.")
             continue
         item("not_on_statement", None, inv, -our_open(s, inv),
              f"In our books for {inv.total:,.2f}, but the vendor's own statement does not list it. Held until they confirm they issued it.")
@@ -409,6 +430,8 @@ def act(s: Session, st: Statement, vendor: Vendor, result: dict) -> None:
             pay = _payment(s, inv)
             if pay is not None and pay.status == "scheduled" and pay.run_id is None:
                 s.delete(pay)
+                s.flush()
+                release_credits(s, inv)
                 inv.status = InvoiceStatus.on_hold
                 enqueue(s, "plan_run", None, {})
                 audit.record(s, actor="agent", kind="unscheduled", invoice_id=inv.id, summary=f"Payment pulled: {vendor.name}'s statement does not list {inv.number}")
@@ -427,9 +450,11 @@ def process(s: Session, statement_id: int) -> Statement:
 
     st = s.get(Statement, statement_id)
     st.status = "reading"
+    origin = {k: (st.extraction or {}).get(k) for k in ("sender", "auth")}
     raw, text, method = read(get_store().get(st.file_key))
     data = normalise(raw, text)
     data["method"] = method
+    data.update(origin)
     st.extraction = data
     st.vendor_name_raw = (data.get("vendor_name") or "")[:200]
     try:
@@ -445,7 +470,12 @@ def process(s: Session, statement_id: int) -> Statement:
     result = reconcile(s, vendor, data)
     st.vendor_balance = Decimal(result["vendor_balance"])
     st.our_balance = Decimal(result["our_balance"])
-    act(s, st, vendor, result)
+    reason = untrusted_reason(s, st, vendor, data)
+    if reason:
+        # still shown, but nothing is held, claimed or emailed on the strength of it
+        result["report_only"] = reason
+    else:
+        act(s, st, vendor, result)
     st.result = result
     st.status = "reconciled"
     kinds = [x["kind"] for x in result["items"] if x["kind"] != "matched"]
@@ -456,12 +486,32 @@ def process(s: Session, statement_id: int) -> Statement:
     return st
 
 
-def ingest(s: Session, data: bytes, file_name: str, *, source: str = "upload", actor: str = "upload") -> Statement:
+def untrusted_reason(s: Session, st: Statement, vendor: Vendor, data: dict) -> str | None:
+    """Why this statement may not change anything, or None. A statement can stop a payment,
+    so it has to come from the vendor and read cleanly before Tollgate acts on it."""
+    if st.source == "upload":
+        return "Uploaded here, not sent by the vendor: reconciled for review only."
+    if st.source == "email":
+        from .inquiry import identify
+
+        who = identify(s, data.get("sender") or "", data.get("auth"))
+        if who.vendor is None or who.vendor.id != vendor.id:
+            return f"Sent by {data.get('sender') or 'an unknown address'}, which is not {vendor.name}'s address on file: reconciled for review only."
+    if not data.get("adds_up", True):
+        return "The statement's lines do not add up to its balance: reconciled for review only."
+    if any(not ln.get("grounded", True) for ln in data.get("lines", [])):
+        return "Some amounts could not be found in the file's text: reconciled for review only."
+    return None
+
+
+def ingest(s: Session, data: bytes, file_name: str, *, source: str = "upload", actor: str = "upload",
+           sender: str | None = None, auth: str | None = None) -> Statement:
     from .pipeline import enqueue
     from .storage import get_store
 
     sha = hashlib.sha256(data).hexdigest()
-    st = Statement(file_name=file_name[:300], file_key=f"statements/{sha[:16]}-{file_name[-60:]}", file_sha256=sha, source=source, status="received")
+    st = Statement(file_name=file_name[:300], file_key=f"statements/{sha[:16]}-{file_name[-60:]}", file_sha256=sha, source=source, status="received",
+                   extraction={"sender": sender, "auth": auth})
     get_store().put(st.file_key, data)
     s.add(st)
     s.flush()
@@ -495,100 +545,152 @@ def decide_credit(s: Session, credit_id: int, *, user: str, role: str, approve: 
         return cr
     cr.status = "approved"
     audit.record(s, actor=cr.decided_by, kind="credit_approved", summary=f"{user} approved claiming {v.name}'s credit memo {cr.reference} for {cr.amount:,.2f}")
-    target = apply_to_scheduled(s, cr)
-    if target is None:
-        # the next invoice from this vendor picks it up; one already waiting is re-checked now
-        for inv in s.execute(select(Invoice).where(Invoice.vendor_id == v.id, Invoice.source != "lab",
-                                                   Invoice.status.in_([InvoiceStatus.awaiting_vendor, InvoiceStatus.on_hold, InvoiceStatus.awaiting_approval]))).scalars():
-            enqueue(s, "recheck", inv.id, {"reason": f"credit memo {cr.reference} approved"})
+    # Payments are only changed by the worker, one job at a time, so this cannot race a payment run.
+    enqueue(s, "apply_credit", None, {"credit_id": cr.id})
     _refresh(s, cr)
     return cr
+
+
+def credit_taken(s: Session, cr: VendorCredit, exclude_invoice: str | None = None) -> Decimal:
+    """How much of a credit has gone into payments (deductions on invoices that have a payment)."""
+    taken = Decimal(0)
+    for f, _pay in s.execute(select(Finding, Payment).join(Payment, Payment.invoice_id == Finding.invoice_id)
+                             .where(Finding.code == "VENDOR_CREDIT", Finding.resolved.is_(False))).all():
+        if (f.evidence or {}).get("credit_id") == cr.id and f.invoice_id != exclude_invoice:
+            taken += f.amount_at_risk or Decimal(0)
+    return taken
+
+
+def credit_left(s: Session, cr: VendorCredit, exclude_invoice: str | None = None) -> Decimal:
+    if cr.status not in ("approved", "applied"):
+        return Decimal(0)
+    return max(cr.amount - credit_taken(s, cr, exclude_invoice), Decimal(0))
+
+
+def sync_credit(s: Session, cr: VendorCredit) -> None:
+    """applied once fully used; back to approved if a payment that used it went away."""
+    if cr.status not in ("approved", "applied"):
+        return
+    s.flush()
+    left = credit_left(s, cr)
+    cr.status = "applied" if left <= 0 else "approved"
+    last = s.execute(select(Invoice).join(Finding, Finding.invoice_id == Invoice.id).join(Payment, Payment.invoice_id == Invoice.id)
+                     .where(Finding.code == "VENDOR_CREDIT", Finding.resolved.is_(False)).order_by(Payment.id.desc())).scalars().all()
+    users = [i for i in last if any(f.code == "VENDOR_CREDIT" and (f.evidence or {}).get("credit_id") == cr.id and not f.resolved for f in i.findings)]
+    cr.applied_invoice_id = users[0].id if users else None
+    cr.applied_invoice_number = users[0].number if users else None
+    _refresh(s, cr)
 
 
 def _refresh(s: Session, cr: VendorCredit) -> None:
     st = s.get(Statement, cr.statement_id) if cr.statement_id else None
     if st is None or not st.result:
         return
+    left = credit_left(s, cr) if cr.status in ("approved", "applied") else cr.amount
     items = []
     for x in st.result["items"]:
         if x.get("credit_id") == cr.id:
             x = {**x, "credit_status": cr.status, "text": {
-                "approved": f"Claim approved; {cr.amount:,.2f} will come off their next invoice.",
-                "applied": f"Taken: {cr.amount:,.2f} deducted from the payment for {cr.applied_invoice_number or 'their invoice'}.",
+                "approved": (f"Claim approved; {left:,.2f} of {cr.amount:,.2f} still to come off their next invoice." if left < cr.amount
+                             else f"Claim approved; {cr.amount:,.2f} will come off their next invoice."),
+                "applied": f"Taken: {cr.amount:,.2f} deducted" + (f", last from the payment for {cr.applied_invoice_number}." if cr.applied_invoice_number else "."),
                 "declined": f"Claim declined by {cr.decided_by}.",
             }.get(cr.status, x["text"])}
         items.append(x)
     st.result = {**st.result, "items": items}
 
 
-def credit_finding(cr: VendorCredit, vendor_name: str, cap: Decimal):
+def credit_finding(cr: VendorCredit, vendor_name: str, amount: Decimal):
     from .checks import FindingData
 
-    amt = min(cr.amount, cap)
-    if amt <= 0:
+    if amount <= 0:
         return None
     return FindingData("VENDOR_CREDIT", Severity.recover, f"Credit memo {cr.reference} from {vendor_name}'s statement",
                        f"{vendor_name} issued credit memo {cr.reference} ({cr.description}) for {cr.amount:,.2f}; we had not taken it. Claim approved by {cr.decided_by}.",
-                       {"credit_id": cr.id, "contract": f"{vendor_name} statement of account", "quote": f"{cr.reference}  {cr.description}  -{cr.amount:,.2f}"}, amt)
+                       {"credit_id": cr.id, "contract": f"{vendor_name} statement of account", "quote": f"{cr.reference}  {cr.description}  -{cr.amount:,.2f}"}, amount)
 
 
 def credit_recoveries(s: Session, inv: Invoice, other: Decimal) -> list:
-    """Approved credits for this vendor, as recoveries on this invoice (capped at what is left to pay)."""
+    """What is left of approved credits for this vendor, as recoveries on this invoice (capped at what
+    is left to pay). Several waiting invoices may each show it; settle_credits() decides at payment time."""
     if not inv.vendor_id or inv.source == "lab":
         return []
     out = []
     left = (inv.total or Decimal(0)) - other
     v = s.get(Vendor, inv.vendor_id)
     for cr in s.execute(select(VendorCredit).where(VendorCredit.vendor_id == inv.vendor_id, VendorCredit.status == "approved").order_by(VendorCredit.id)).scalars():
-        f = credit_finding(cr, v.name, left)
+        f = credit_finding(cr, v.name, min(credit_left(s, cr, exclude_invoice=inv.id), left))
         if f is not None:
             out.append(f)
             left -= f.amount_at_risk
     return out
 
 
+def settle_credits(s: Session, inv: Invoice) -> None:
+    """Called just before a payment is created: each credit deduction is cut to what is still unused,
+    so the same credit can never be taken twice."""
+    for f in inv.findings:
+        if f.code != "VENDOR_CREDIT" or f.resolved:
+            continue
+        cr = s.get(VendorCredit, (f.evidence or {}).get("credit_id"))
+        avail = credit_left(s, cr, exclude_invoice=inv.id) if cr is not None else Decimal(0)
+        if avail <= 0:
+            f.resolved, f.resolution, f.resolved_by = True, "Credit already taken on another payment", "system"
+        elif (f.amount_at_risk or 0) > avail:
+            f.amount_at_risk = avail
+    s.flush()
+
+
 def mark_applied(s: Session, inv: Invoice) -> None:
-    """Called when a payment is scheduled: credits it deducts are used up."""
+    """Called once the payment exists: update the credits it used."""
     for f in inv.findings:
         if f.code == "VENDOR_CREDIT" and not f.resolved:
             cr = s.get(VendorCredit, (f.evidence or {}).get("credit_id"))
-            if cr is not None and cr.status == "approved":
-                cr.status = "applied"
-                cr.applied_invoice_id = inv.id
-                cr.applied_invoice_number = inv.number
-                _refresh(s, cr)
+            if cr is not None:
+                sync_credit(s, cr)
 
 
-def apply_to_scheduled(s: Session, cr: VendorCredit) -> Invoice | None:
-    """Take an approved credit off a payment that is scheduled but not yet released."""
+def release_credits(s: Session, inv: Invoice) -> None:
+    """After a payment is removed: credits it used become available again."""
+    for f in inv.findings:
+        if f.code == "VENDOR_CREDIT":
+            cr = s.get(VendorCredit, (f.evidence or {}).get("credit_id"))
+            if cr is not None:
+                sync_credit(s, cr)
+
+
+def apply_credit(s: Session, credit_id: int) -> Invoice | None:
+    """Worker job: take an approved credit off a payment that is scheduled but not yet in a run,
+    or else re-check the vendor's waiting invoices so the next one carries it."""
     from . import mailer
     from .agent import remittance_advice
     from .pipeline import enqueue
 
+    cr = s.get(VendorCredit, credit_id)
+    if cr is None or cr.status != "approved":
+        return None
+    v = s.get(Vendor, cr.vendor_id)
     row = s.execute(
         select(Payment, Invoice).join(Invoice, Invoice.id == Payment.invoice_id)
         .where(Payment.vendor_id == cr.vendor_id, Payment.status == "scheduled", Payment.run_id.is_(None), Invoice.source != "lab")
         .order_by(Payment.amount.desc())
     ).first()
-    if row is None:
+    fd = credit_finding(cr, v.name, min(credit_left(s, cr), row[0].amount)) if row else None
+    if fd is None:
+        for inv in s.execute(select(Invoice).where(Invoice.vendor_id == v.id, Invoice.source != "lab",
+                                                   Invoice.status.in_([InvoiceStatus.awaiting_vendor, InvoiceStatus.on_hold, InvoiceStatus.awaiting_approval]))).scalars():
+            enqueue(s, "recheck", inv.id, {"reason": f"credit memo {cr.reference} approved"})
         return None
     pay, inv = row
-    v = s.get(Vendor, cr.vendor_id)
-    fd = credit_finding(cr, v.name, pay.amount)
-    if fd is None:
-        return None
     s.add(Finding(invoice_id=inv.id, code=fd.code, severity=fd.severity, title=fd.title, detail=fd.detail, evidence=fd.evidence, amount_at_risk=fd.amount_at_risk))
-    s.flush()
-    s.refresh(inv)
     pay.deductions = (pay.deductions or Decimal(0)) + fd.amount_at_risk
     pay.amount = pay.amount - fd.amount_at_risk
-    cr.status = "applied"
-    cr.applied_invoice_id = inv.id
-    cr.applied_invoice_number = inv.number
+    s.flush()
+    s.refresh(inv)
+    sync_credit(s, cr)
     subject, body = remittance_advice(inv, pay)
     mailer.send(s, invoice_id=inv.id, to=v.email, subject=f"{subject} [TG-{inv.id}]", body=body)
     audit.record(s, actor="agent", kind="credit_applied", invoice_id=inv.id,
                  summary=f"Took credit memo {cr.reference} ({fd.amount_at_risk:,.2f}) off the scheduled payment; now {pay.amount:,.2f}; remittance advice sent")
     enqueue(s, "plan_run", None, {})
     return inv
-

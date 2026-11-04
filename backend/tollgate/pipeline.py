@@ -244,7 +244,9 @@ def statement_findings(s: Session, inv: Invoice, findings: list[checks.FindingDa
     if not inv.vendor_id or inv.source == "lab":
         return []
     out = []
-    st = s.execute(select(Statement).where(Statement.vendor_id == inv.vendor_id, Statement.status == "reconciled").order_by(Statement.id.desc())).scalars().first()
+    trusted = [x for x in s.execute(select(Statement).where(Statement.vendor_id == inv.vendor_id, Statement.status == "reconciled").order_by(Statement.id.desc())).scalars()
+               if not (x.result or {}).get("report_only")]
+    st = trusted[0] if trusted else None
     if st is not None and any(x["kind"] == "not_on_statement" and x.get("invoice_id") == inv.id for x in (st.result or {}).get("items", [])):
         out.append(checks.FindingData("NOT_ON_VENDOR_STATEMENT", Severity.block, "The vendor's own statement does not list this invoice",
                                       f"{inv.vendor.name if inv.vendor else 'The vendor'}'s statement dated {st.statement_date} lists their open invoices and this is not one of them. "

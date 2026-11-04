@@ -330,6 +330,9 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
         if inv.id and s.execute(select(Payment).where(Payment.invoice_id == inv.id)).scalar_one_or_none():
             return "already scheduled"
         gross = inv.total or Decimal(0)
+        from .statements import settle_credits
+
+        settle_credits(s, inv)
         ded = min(deductions(inv), gross)
         ep = early_pay(vendor_terms(s, v.id), inv.invoice_date)
         pay = Payment(invoice_id=inv.id, vendor_id=v.id, gross=gross, deductions=ded, discount=Decimal(0), amount=gross - ded,

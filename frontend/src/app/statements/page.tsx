@@ -26,7 +26,7 @@ type StatementRow = {
   statement_date: string | null;
   status: string;
   extraction: { method?: string; adds_up?: boolean; lines?: { grounded: boolean }[] } | null;
-  result: { vendor_balance: string; our_balance: string; difference: string; explained: string; unexplained: string; items: Item[]; emailed?: string } | null;
+  result: { vendor_balance: string; our_balance: string; difference: string; explained: string; unexplained: string; items: Item[]; emailed?: string; report_only?: string } | null;
 };
 type Data = { statements: StatementRow[]; pending: number };
 type Demo = { index: number; title: string; expectation: string };
@@ -41,8 +41,9 @@ const KIND: Record<string, { label: string; tone: string }> = {
   credit: { label: "Credit owed to us", tone: "bg-emerald-50 text-emerald-800" },
   not_on_statement: { label: "Not on their statement", tone: "bg-rose-50 text-rose-700" },
   unknown_payment: { label: "Payment we did not make", tone: "bg-rose-50 text-rose-700" },
+  too_recent: { label: "Too recent to be listed", tone: "bg-slate-100 text-slate-600" },
 };
-const ORDER = ["not_on_statement", "credit", "missing", "unapplied_payment", "amount_differs", "disputed", "corrected", "unknown_payment", "matched"];
+const ORDER = ["not_on_statement", "credit", "missing", "unapplied_payment", "amount_differs", "disputed", "corrected", "unknown_payment", "too_recent", "matched"];
 
 function signed(n: number) {
   return n === 0 ? money(0) : `${n > 0 ? "+" : "-"}${money(Math.abs(n))}`;
@@ -68,7 +69,7 @@ function CreditButtons({ item, reload }: { item: Item; reload: () => void }) {
       fb.toast(
         "success",
         approve ? `Credit ${item.reference} claimed` : `Credit ${item.reference} declined`,
-        r.status === "applied" ? `Deducted from the scheduled payment for ${r.applied_invoice_number}; remittance advice sent.` : approve ? "It comes off the vendor's next invoice." : undefined,
+        r.status === "approved" ? "The agent takes it off a scheduled payment, or the vendor's next invoice, and sends remittance advice." : undefined,
       );
       reload();
     } catch (e) {
@@ -117,6 +118,7 @@ function StatementCard({ st, reload }: { st: StatementRow; reload: () => void })
     );
   }
   const items = [...r.items].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
+  const reportOnly = !!r.report_only;
   const ungrounded = (st.extraction?.lines || []).filter((l) => !l.grounded).length;
   return (
     <Card title={title} action={action} pad={false}>
@@ -133,6 +135,11 @@ function StatementCard({ st, reload }: { st: StatementRow; reload: () => void })
           </div>
         ))}
       </div>
+      {reportOnly && (
+        <div className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          {r.report_only} Nothing was held, claimed or emailed. A statement can stop a payment, so Tollgate acts only on one that comes from the vendor&apos;s address on file and reads cleanly.
+        </div>
+      )}
       {Number(r.unexplained) === 0 && (
         <div className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 text-xs text-emerald-700">
           <CheckCircle2 className="h-3.5 w-3.5" /> Every cent of the difference is explained below.
@@ -166,7 +173,7 @@ function StatementCard({ st, reload }: { st: StatementRow; reload: () => void })
                 </div>
               </div>
               <div className="md:text-right">
-                <CreditButtons item={x} reload={reload} />
+                {!reportOnly && <CreditButtons item={x} reload={reload} />}
               </div>
             </li>
           );
@@ -230,7 +237,7 @@ export default function StatementsPage() {
         <div className="flex gap-2">
           <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={(e) => upload(e.target.files)} />
           <Button onClick={() => fileRef.current?.click()} disabled={busy}>
-            <FileUp className="h-4 w-4" /> Upload a statement
+            <FileUp className="h-4 w-4" /> Upload one to review
           </Button>
           <Button variant="primary" onClick={loadDemo} disabled={busy}>
             Load demo statements

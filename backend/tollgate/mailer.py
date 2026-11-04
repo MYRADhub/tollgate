@@ -126,7 +126,7 @@ def handle_inbound(s: Session, raw: bytes, *, from_demo: bool = False) -> str | 
 
         for name, data in atts:
             if statements.looks_like_statement(name, subject):
-                statements.ingest(s, data, name, source="email", actor=f"email:{sender}")
+                statements.ingest(s, data, name, source="email", actor=f"email:{sender}", sender=sender, auth=str(msg.get("Authentication-Results") or "") or None)
             else:
                 ingest(s, data, name, source="email", source_ref=f"{sender}: {subject}"[:300])
         return f"{len(atts)} new document(s) from {sender}"
