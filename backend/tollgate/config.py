@@ -59,7 +59,15 @@ class Settings(BaseSettings):
 
     # Public demo guard rails
     demo_mode: bool = True
-    max_uploads_per_hour: int = 30
+    # Rate limits count documents sent into the pipeline (the demo inbox is ten).
+    intake_per_ip_per_hour: int = 40
+    intake_global_per_hour: int = 300
+    resets_per_ip_per_hour: int = 12
+    # Arbitrary uploads stop this close to the inference cap, so the guided demo
+    # keeps real model output for the last few dollars.
+    public_reserve_usd: float = 3.0
+    # Ardent Partners, AP Metrics That Matter 2025: best-in-class cost per invoice.
+    benchmark_cost_per_invoice_usd: float = 2.78
     cors_origins: str = "http://localhost:3000"
 
 

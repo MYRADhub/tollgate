@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { Bot, FileUp, HandCoins, Mail, RotateCcw, Scale, ShieldAlert, User } from "lucide-react";
-import { AuditEvent, InvoiceRow, Stats, ago, api, compactMoney, money, useData, useLive } from "@/lib/api";
+import { Bot, Cpu, FileUp, HandCoins, Mail, RotateCcw, Scale, ShieldAlert, User } from "lucide-react";
+import { AuditEvent, InvoiceRow, Stats, ago, api, compactMoney, microMoney, money, useData, useLive } from "@/lib/api";
 import { useFeedback } from "@/components/Feedback";
 import { Tour } from "@/components/Tour";
 import { Button, Card, Empty, Flag, Stat, StatusPill, cx } from "@/components/ui";
@@ -26,6 +26,26 @@ function Flags({ r }: { r: InvoiceRow }) {
       {r.recover.map((c) => (
         <Flag key={c} code={c} severity="recover" />
       ))}
+    </div>
+  );
+}
+
+function CostStrip({ stats }: { stats: Stats }) {
+  const c = stats.cost;
+  if (!c || !c.per_invoice_usd) return null;
+  const times = Math.round(c.benchmark_usd / c.per_invoice_usd);
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[13px]">
+      <span className="flex items-center gap-2 font-medium text-slate-900">
+        <Cpu className="h-4 w-4 text-indigo-600" />
+        {microMoney(c.per_invoice_usd)} of model time per invoice
+      </span>
+      <span className="text-slate-500">
+        {microMoney(c.usd)} for {c.invoices} invoice{c.invoices === 1 ? "" : "s"}, {c.calls} calls to Vultr Serverless Inference
+      </span>
+      <span className="text-slate-500" title={`${c.benchmark_source}. Their figure is fully loaded; ours is model usage only, before servers and the time people spend on approvals.`}>
+        Best-in-class AP teams: {money(c.benchmark_usd)} per invoice{times > 1 && <> ({times.toLocaleString()}x more)</>}
+      </span>
     </div>
   );
 }
@@ -184,6 +204,8 @@ export default function InvoicesPage() {
           }
         />
       </div>
+
+      {stats && <CostStrip stats={stats} />}
 
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <Card

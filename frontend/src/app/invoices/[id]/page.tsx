@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, PackageCheck, Scale, ShieldAlert, ShieldCheck, User } from "lucide-react";
-import { CriticReview, InvoiceDetail, ROLE_LABEL, api, markSeen, money, useActor, useData } from "@/lib/api";
+import { CriticReview, InvoiceDetail, ROLE_LABEL, api, markSeen, microMoney, money, useActor, useData } from "@/lib/api";
 import { BankChangeReview, PaymentApproval } from "@/components/ApprovalControls";
 import { useFeedback } from "@/components/Feedback";
 import { Button, Card, Empty, Flag, Mono, StatusPill, cx, maskAcct } from "@/components/ui";
@@ -371,6 +371,12 @@ function Timeline({ inv }: { inv: InvoiceDetail }) {
           );
         })}
       </ol>
+      {inv.cost && (
+        <div className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+          Model cost for this invoice: <span className="font-medium text-slate-700">{microMoney(inv.cost.usd)}</span> · {inv.cost.calls} call{inv.cost.calls === 1 ? "" : "s"} ·{" "}
+          {(inv.cost.prompt_tokens + inv.cost.completion_tokens).toLocaleString()} tokens on Vultr Serverless Inference
+        </div>
+      )}
     </Card>
   );
 }

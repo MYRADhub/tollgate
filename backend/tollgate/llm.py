@@ -7,6 +7,8 @@ import logging
 import re
 import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from typing import Any
 
@@ -41,7 +43,19 @@ DEFAULT_PRICE = 0.000003
 
 
 _pending: dict[str, list[float]] = {}
+_pending_inv: dict[str, list[float]] = {}  # invoice id -> [calls, prompt, completion, usd]
 _lock = threading.Lock()
+_invoice: ContextVar[str | None] = ContextVar("tollgate_invoice", default=None)
+
+
+@contextmanager
+def attribute(invoice_id: str | None):
+    """Charge model calls made inside this block to an invoice."""
+    tok = _invoice.set(invoice_id)
+    try:
+        yield
+    finally:
+        _invoice.reset(tok)
 
 
 def _record(model: str, usage) -> None:
@@ -50,12 +64,17 @@ def _record(model: str, usage) -> None:
     if usage is None:
         return
     p, c = int(getattr(usage, "prompt_tokens", 0) or 0), int(getattr(usage, "completion_tokens", 0) or 0)
+    usd = (p + c) * PRICE_PER_TOKEN.get(model, DEFAULT_PRICE)
+    inv = _invoice.get()
     with _lock:
-        row = _pending.setdefault(model, [0, 0, 0, 0.0])
-        row[0] += 1
-        row[1] += p
-        row[2] += c
-        row[3] += (p + c) * PRICE_PER_TOKEN.get(model, DEFAULT_PRICE)
+        targets = [_pending.setdefault(model, [0, 0, 0, 0.0])]
+        if inv:
+            targets.append(_pending_inv.setdefault(inv, [0, 0, 0, 0.0]))
+        for row in targets:
+            row[0] += 1
+            row[1] += p
+            row[2] += c
+            row[3] += usd
 
 
 def flush_spend() -> None:
@@ -64,15 +83,26 @@ def flush_spend() -> None:
     from sqlalchemy import select
 
     from .db import session_scope
-    from .models import InferenceSpend
+    from .models import InferenceSpend, InvoiceCost
 
     with _lock:
         items = list(_pending.items())
+        inv_items = list(_pending_inv.items())
         _pending.clear()
-    if not items:
+        _pending_inv.clear()
+    if not items and not inv_items:
         return
     try:
         with session_scope() as s:
+            for inv_id, (calls, p, c, usd) in inv_items:
+                row = s.get(InvoiceCost, inv_id)
+                if row is None:
+                    row = InvoiceCost(invoice_id=inv_id, calls=0, prompt_tokens=0, completion_tokens=0, usd=Decimal(0))
+                    s.add(row)
+                row.calls += int(calls)
+                row.prompt_tokens += int(p)
+                row.completion_tokens += int(c)
+                row.usd = (row.usd or Decimal(0)) + Decimal(str(usd))
             for model, (calls, p, c, usd) in items:
                 row = s.execute(select(InferenceSpend).where(InferenceSpend.model == model)).scalar_one_or_none()
                 if row is None:
@@ -84,10 +114,11 @@ def flush_spend() -> None:
                 row.usd = (row.usd or Decimal(0)) + Decimal(str(usd))
     except Exception:
         with _lock:
-            for model, vals in items:
-                row = _pending.setdefault(model, [0, 0, 0, 0.0])
-                for i in range(4):
-                    row[i] += vals[i]
+            for store, its in ((_pending, items), (_pending_inv, inv_items)):
+                for key, vals in its:
+                    row = store.setdefault(key, [0, 0, 0, 0.0])
+                    for i in range(4):
+                        row[i] += vals[i]
         raise
 
 

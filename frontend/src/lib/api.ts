@@ -302,6 +302,7 @@ export type InvoiceDetail = InvoiceRow & {
   } | null;
   critic: CriticReview[];
   controls_count: number;
+  cost: InvoiceCost | null;
   min_role: Role | null;
   bank_change: { id: number; old_account: string; new_account: string; new_bank_name: string; status: string; callback_note: string | null } | null;
   timeline: { id: number; actor: string; kind: string; summary: string; detail: Record<string, unknown>; created_at: string; hash: string; invoice_id: string }[];
@@ -334,7 +335,16 @@ export type Stats = {
   pending_approvals: number;
   scheduled_total: number;
   queue: number;
+  cost: { invoices: number; usd: number; calls: number; per_invoice_usd: number | null; benchmark_usd: number; benchmark_source: string };
 };
+
+export type InvoiceCost = { calls: number; prompt_tokens: number; completion_tokens: number; usd: number };
+
+/** Sub-cent amounts, e.g. $0.0042. */
+export function microMoney(n: number): string {
+  if (n >= 1) return money(n);
+  return `$${n.toFixed(n < 0.01 ? 4 : 3)}`;
+}
 
 // ---- guided demo progress (per viewer, best effort)
 const SEEN_KEY = "tollgate.seen";

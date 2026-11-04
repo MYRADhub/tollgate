@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ from .agent import required_role
 from .config import get_settings
 from .db import SessionLocal, get_session, init_db, session_scope
 from .models import (
+    InvoiceCost,
     Approval,
     AuditEvent,
     Contract,
@@ -66,16 +67,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_uploads: deque[float] = deque()
+class RateLimiter:
+    """Sliding one-hour windows of weighted hits, per key."""
+
+    def __init__(self) -> None:
+        self.hits: dict[str, deque[tuple[float, int]]] = {}
+
+    def used(self, key: str, now: float) -> int:
+        q = self.hits.get(key)
+        if not q:
+            return 0
+        while q and now - q[0][0] > 3600:
+            q.popleft()
+        return sum(n for _, n in q)
+
+    def take(self, limits: list[tuple[str, int]], units: int = 1, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        if any(self.used(k, now) + units > cap for k, cap in limits):
+            return False
+        for k, _ in limits:
+            self.hits.setdefault(k, deque()).append((now, units))
+        return True
 
 
-def _rate_limit() -> None:
-    now = time.time()
-    while _uploads and now - _uploads[0] > 3600:
-        _uploads.popleft()
-    if len(_uploads) >= settings.max_uploads_per_hour:
-        raise HTTPException(429, "Upload limit reached for this demo; try again later.")
-    _uploads.append(now)
+limiter = RateLimiter()
+
+
+def client_ip(request: Request) -> str:
+    # Caddy replaces X-Forwarded-For with the real peer (untrusted headers are
+    # dropped), and the API port is not published, so the last entry is reliable.
+    xff = request.headers.get("x-forwarded-for", "")
+    return xff.split(",")[-1].strip() if xff else (request.client.host if request.client else "unknown")
+
+
+def _rate_limit(request: Request, units: int = 1, *, arbitrary: bool = False) -> None:
+    ip = client_ip(request)
+    if not limiter.take([(f"ip:{ip}", settings.intake_per_ip_per_hour), ("global", settings.intake_global_per_hour)], units):
+        raise HTTPException(429, "This public demo limits how many documents one visitor can send per hour. Try again later.")
+    if arbitrary and settings.inference_api_key:
+        from .llm import spent_usd
+
+        if spent_usd() >= settings.inference_budget_usd - settings.public_reserve_usd:
+            raise HTTPException(503, "The demo's model budget is nearly used up, so new uploads are paused. The guided demo still works.")
 
 
 def j(x):
@@ -180,7 +213,17 @@ def stats(s: Session = Depends(get_session)):
     pending_approvals = len({(k, bc) if k == "bank_change" else (k, i) for k, bc, i in pending})
     scheduled_total = s.execute(select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.status.in_(["scheduled", "released"]), Payment.run_id.is_not(None) | (Payment.status == "scheduled"))).scalar_one()
     discounts = s.execute(select(func.coalesce(func.sum(Payment.discount), 0)).where(Payment.invoice_id.in_(real))).scalar_one() or 0
+    costed = s.execute(select(func.count(InvoiceCost.invoice_id), func.coalesce(func.sum(InvoiceCost.usd), 0), func.coalesce(func.sum(InvoiceCost.calls), 0))
+                       .where(InvoiceCost.invoice_id.in_([i.id for i in invs]))).one()
     return {
+        "cost": {
+            "invoices": int(costed[0]),
+            "usd": float(costed[1]),
+            "calls": int(costed[2]),
+            "per_invoice_usd": float(costed[1]) / costed[0] if costed[0] else None,
+            "benchmark_usd": settings.benchmark_cost_per_invoice_usd,
+            "benchmark_source": "Ardent Partners, AP Metrics That Matter 2025 (best-in-class AP teams)",
+        },
         "invoices": len(invs),
         "by_status": by_status,
         "decided": len(decided),
@@ -259,6 +302,8 @@ def get_invoice(invoice_id: str, s: Session = Depends(get_session)):
         ser(r, ["id", "verdict", "summary", "points", "independent_amount", "model", "proposal", "created_at"])
         for r in s.execute(select(CriticReview).where(CriticReview.invoice_id == inv.id).order_by(CriticReview.id)).scalars()
     ]
+    cost = s.get(InvoiceCost, inv.id)
+    d["cost"] = ser(cost, ["calls", "prompt_tokens", "completion_tokens", "usd"]) if cost else None
     d["controls_count"] = len(pipeline.checks_run())
     d["min_role"] = (inv.agent_state or {}).get("min_role")
     from .agent import needed_role
@@ -450,8 +495,8 @@ def _wrap(fn):
 
 
 @app.post("/api/invoices")
-async def upload(file: UploadFile = File(...), x_demo_user: str | None = Header(None)):
-    _rate_limit()
+async def upload(request: Request, file: UploadFile = File(...), x_demo_user: str | None = Header(None)):
+    _rate_limit(request, arbitrary=True)
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(413, "File too large")
@@ -535,10 +580,19 @@ def _add_extracted(s: Session, c: Contract, actor: str) -> dict:
 
 
 @app.post("/api/contracts")
-def add_contract(body: NewContract):
-    _rate_limit()
+def add_contract(body: NewContract, request: Request):
+    from .llm import flush_spend
+
+    _rate_limit(request, arbitrary=True)
     if len(body.text) < 200:
         raise HTTPException(400, "Paste the contract text (at least a few paragraphs)")
+    try:
+        return _add_contract(body)
+    finally:
+        flush_spend()  # the contract reader runs in this process, not the worker
+
+
+def _add_contract(body: NewContract):
     with session_scope() as s:
         v = s.get(Vendor, body.vendor_id)
         if v is None:
@@ -552,13 +606,18 @@ def add_contract(body: NewContract):
 
 
 @app.post("/api/contracts/{contract_id}/extract")
-def reextract(contract_id: int, body: Actor):
-    _rate_limit()
-    with session_scope() as s:
-        c = s.get(Contract, contract_id)
-        if c is None:
-            raise HTTPException(404)
-        return _add_extracted(s, c, body.user)
+def reextract(contract_id: int, body: Actor, request: Request):
+    from .llm import flush_spend
+
+    _rate_limit(request, arbitrary=True)
+    try:
+        with session_scope() as s:
+            c = s.get(Contract, contract_id)
+            if c is None:
+                raise HTTPException(404)
+            return _add_extracted(s, c, body.user)
+    finally:
+        flush_spend()
 
 
 class TermDecision(Actor):
@@ -641,12 +700,12 @@ class LabAttack(BaseModel):
 
 
 @app.post("/api/lab/attack")
-def lab_attack(body: LabAttack):
+def lab_attack(body: LabAttack, request: Request):
     from .lab import BY_KEY, build
 
     if body.template not in BY_KEY:
         raise HTTPException(400, "unknown template")
-    _rate_limit()
+    _rate_limit(request, 2, arbitrary=True)
     with session_scope() as s:
         seq = s.execute(select(func.count(Invoice.id)).where(Invoice.source == "lab")).scalar_one() + 1
         ids = []
@@ -658,8 +717,8 @@ def lab_attack(body: LabAttack):
 
 
 @app.post("/api/lab/upload")
-async def lab_upload(file: UploadFile = File(...)):
-    _rate_limit()
+async def lab_upload(request: Request, file: UploadFile = File(...)):
+    _rate_limit(request, arbitrary=True)
     data = await file.read()
     if len(data) > 15 * 1024 * 1024 or not data.startswith(b"%PDF"):
         raise HTTPException(400, "Upload a PDF under 15 MB")
@@ -712,12 +771,12 @@ def demo_list():
 
 
 @app.post("/api/demo/inbox")
-def demo_load(indexes: list[int] | None = None):
+def demo_load(request: Request, indexes: list[int] | None = None):
     from .seed import demo_inbox
 
-    _rate_limit()
     items = demo_inbox()
     chosen = [items[i] for i in (indexes or range(len(items))) if 0 <= i < len(items)]
+    _rate_limit(request, max(len(chosen), 1))
     ids = []
     with session_scope() as s:
         for k, d in enumerate(chosen):
@@ -737,9 +796,11 @@ def demo_file(index: int):
 
 
 @app.post("/api/demo/reset")
-def demo_reset():
+def demo_reset(request: Request):
     if not settings.demo_mode:
         raise HTTPException(403)
+    if not limiter.take([(f"reset:{client_ip(request)}", settings.resets_per_ip_per_hour)]):
+        raise HTTPException(429, "Too many resets from this visitor; try again later.")
     from .seed import reset_and_seed
 
     with session_scope() as s:
@@ -748,9 +809,10 @@ def demo_reset():
 
 
 @app.post("/api/demo/vendor-reply/{invoice_id}")
-def demo_vendor_reply(invoice_id: str):
+def demo_vendor_reply(invoice_id: str, request: Request):
     """Play the vendor: reply to the agent's email with a corrected invoice.
     With Gmail connected, a real reply to the agent's email does the same."""
+    _rate_limit(request)
     from email.message import EmailMessage as Mime
     from email.utils import make_msgid
 

@@ -309,6 +309,18 @@ class InferenceSpend(Base):
     usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0))
 
 
+class InvoiceCost(Base):
+    """Model usage charged to one invoice. No foreign key: usage is flushed
+    after the job's transaction, and the invoice may have been reset since."""
+
+    __tablename__ = "invoice_costs"
+    invoice_id: Mapped[str] = mapped_column(String(12), primary_key=True)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0))
+
+
 class Contract(Base):
     __tablename__ = "contracts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

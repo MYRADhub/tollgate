@@ -15,7 +15,7 @@ from sqlalchemy import select, update
 from . import agent, mailer, paymentrun, pipeline
 from .config import get_settings
 from .db import init_db, session_scope
-from .llm import flush_spend
+from .llm import attribute, flush_spend
 from .models import Invoice, Job, utcnow
 
 log = logging.getLogger("tollgate.worker")
@@ -23,6 +23,13 @@ _stop = False
 
 
 def run_job(job_id: int) -> None:
+    with session_scope() as s:
+        invoice_id = s.get(Job, job_id).invoice_id
+    with attribute(invoice_id):
+        _run_job(job_id)
+
+
+def _run_job(job_id: int) -> None:
     with session_scope() as s:
         job = s.get(Job, job_id)
         inv = s.get(Invoice, job.invoice_id) if job.invoice_id else None

@@ -19,6 +19,9 @@ def db():
     init_db()
     from tollgate.seed import reset_and_seed
 
+    from tollgate.api import limiter
+
+    limiter.hits.clear()
     with session_scope() as s:
         reset_and_seed(s)
     yield
