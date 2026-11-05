@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from .models import AuditEvent, utcnow
@@ -40,6 +40,12 @@ def record(
     s: Session, *, actor: str, kind: str, summary: str, invoice_id: str | None = None, detail: dict | None = None
 ) -> AuditEvent:
     detail = json.loads(json.dumps(detail or {}, default=_default))
+    if s.get_bind().dialect.name == "postgresql":
+        # One appender at a time, held to commit. A row lock on the last event is not
+        # enough: a writer that waited on it would still see the old last event and
+        # fork the chain. After this lock, the next statement sees the previous
+        # appender's committed event.
+        s.execute(text("SELECT pg_advisory_xact_lock(724100)"))
     last = s.execute(select(AuditEvent).order_by(AuditEvent.id.desc()).limit(1).with_for_update()).scalar_one_or_none()
     prev = last.hash if last else GENESIS
     ts = utcnow()
