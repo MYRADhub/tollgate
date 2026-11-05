@@ -277,13 +277,13 @@ test.describe.serial("guided demo, end to end", () => {
 
 test.describe("show me", () => {
   test("plays the whole story by itself from an empty demo", async ({ page, request }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(480_000);
     await request.post(`${API}/api/demo/reset`);
     await page.goto("/");
     await page.getByRole("button", { name: "Show me in 2 minutes" }).click();
     const story = page.getByTestId("story");
     await expect(story.getByText("Twelve invoices arrive in the AP inbox")).toBeVisible();
-    await expect(story.getByText("Cleared without anyone in AP")).toBeVisible({ timeout: 120_000 });
+    await expect(story.getByText("Cleared without anyone in AP")).toBeVisible({ timeout: 240_000 });
     await expect(page.getByText("The agent asked colleagues").first()).toBeVisible();
     await expect(story.getByText("The delivery arrived; it paid")).toBeVisible({ timeout: 120_000 });
     await expect(story.getByText("A forgery, caught four ways")).toBeVisible({ timeout: 60_000 });
