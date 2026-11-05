@@ -54,8 +54,21 @@ export function compactMoney(x: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: x >= 100000 ? "compact" : "standard", maximumFractionDigits: x >= 100000 ? 1 : 0 }).format(x);
 }
 
+// The demo company's clock can run ahead of real time (fast-forward). Times the
+// server sends are on that clock, so "how long ago" is measured against it too.
+let clockOffsetMs = 0;
+export function setClockOffset(hours: number) {
+  clockOffsetMs = hours * 3600 * 1000;
+}
+export function companyNow() {
+  return Date.now() + clockOffsetMs;
+}
+export function clockLabel(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 export function ago(iso: string) {
-  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  const d = (companyNow() - new Date(iso).getTime()) / 1000;
   if (d < 60) return `${Math.max(1, Math.floor(d))}s ago`;
   if (d < 3600) return `${Math.floor(d / 60)}m ago`;
   if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
@@ -258,7 +271,8 @@ export type InvoiceDetail = InvoiceRow & {
     vendor_email_on_document?: string | null;
     vendor_tax_id?: string | null;
   };
-  agent_state: { waiting_for?: string; hold_reason?: string; decisions?: number };
+  agent_state: { waiting_for?: string; hold_reason?: string; decisions?: number; recommendation?: string };
+  questions: ColleagueQuestion[];
   line_matches: { line: number; po_sku: string | null; po_qty?: string; po_price?: string; received?: string; billed_before?: string }[];
   lines: { position: number; sku: string | null; description: string; quantity: number; unit_price: number; amount: number }[];
   findings: Finding[];
@@ -320,6 +334,48 @@ export type CriticReview = {
   model: string;
   proposal: { invoice_total: string; pay: string; approval: string; deductions: { title: string; amount: string; clause: string | null }[] };
   created_at: string;
+};
+
+export type ColleagueQuestion = {
+  id: number;
+  topic: string;
+  person_name: string;
+  po_number: string | null;
+  line: number | null;
+  amount: number | null;
+  answer: string;
+  answer_note: string;
+  eta: string | null;
+  created_at: string;
+  answered_at: string | null;
+};
+
+export type BriefingItem = { invoice_id: string | null; number: string | null; vendor: string | null; total: number; exceptions: string[] };
+export type Briefing = {
+  now: string;
+  clock_offset_hours: number;
+  since: string | null;
+  invoices: number;
+  decided: number;
+  touchless: number;
+  touchless_rate: number;
+  human_touches: number;
+  exceptions: { total: number; resolved_by_agent: number; resolved_with_help: number; in_progress: number; median_hours: number | null };
+  work: Partial<Record<"emails" | "questions" | "reminders" | "lookups" | "fixes" | "payments" | "rejections", number>>;
+  recovered: number;
+  time_saved: { hours: number; minutes_per_exception: number; assumption: string };
+  resolved: (BriefingItem & { status: string; summary: string | null; steps: number; hours: number; by_agent: boolean; people: string[] })[];
+  working: (BriefingItem & { waiting_on: string; what: string | null; next: string | null; next_at: string | null })[];
+  needs_you: (BriefingItem & {
+    kind: "approval" | "bank_change" | "quarantine" | "review" | "credit";
+    title: string;
+    recommendation: string;
+    why: string | null;
+    approval_id: number | null;
+    required_role: Role | null;
+    waiting_since: string | null;
+    credit_id?: number;
+  })[];
 };
 
 export type Stats = {

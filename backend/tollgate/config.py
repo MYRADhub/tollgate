@@ -52,6 +52,21 @@ class Settings(BaseSettings):
     controller_limit: float = 50_000.0
     vendor_followup_hours: float = 24.0
     agent_max_steps: int = 8
+    # Exception work. Colleagues inside Halden are simulated in the demo; their
+    # answers arrive after this many (real) seconds.
+    colleague_reply_s: float = 40.0
+    # An unordered line the budget owner accepts is added to the PO as a change
+    # order only up to this amount; anything larger goes back to the vendor.
+    change_order_limit_usd: float = 500.0
+    approval_reminder_hours: float = 20.0
+    max_questions_per_topic: int = 3
+    max_investigation_steps: int = 4
+    # The demo clock can run at most this far ahead of real time.
+    max_clock_offset_days: float = 14.0
+    fast_forwards_per_ip_per_hour: int = 30
+    # Assumption for the productivity estimate, shown next to it: AP time an
+    # exception takes a person (low end of the 15-45 minutes commonly cited).
+    minutes_per_exception: float = 15.0
 
     # Treasury, for payment runs
     cash_balance_usd: float = 63_500.0

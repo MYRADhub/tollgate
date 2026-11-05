@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useContext, useEffect, useState } from "react";
-import { Activity, BookCheck, Building2, ScrollText, FlaskConical, Gauge, Inbox, Landmark, MailQuestion, Network, Scale, ShieldCheck, Users } from "lucide-react";
-import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, ago, api, useData, useLiveFeed, useStoredActor } from "@/lib/api";
-import { FeedbackProvider } from "./Feedback";
+import { Activity, BookCheck, Building2, Clock, FastForward, ScrollText, FlaskConical, Gauge, Inbox, Landmark, MailQuestion, Network, Scale, ShieldCheck, Users } from "lucide-react";
+import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, ago, api, clockLabel, companyNow, setClockOffset, useData, useLiveFeed, useStoredActor } from "@/lib/api";
+import { FeedbackProvider, useFeedback } from "./Feedback";
 import { Logo } from "./Logo";
 import { cx } from "./ui";
 
@@ -123,12 +123,63 @@ function LiveTicker() {
   );
 }
 
+type ClockCfg = { demo_mode: boolean; clock?: { now: string; offset_hours: number; max_days: number } };
+
+function DemoClock() {
+  const fb = useFeedback();
+  const { data, reload } = useData<ClockCfg>("/api/config");
+  const [busy, setBusy] = useState(false);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (data?.clock) setClockOffset(data.clock.offset_hours);
+  }, [data]);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+  if (!data?.clock || !data.demo_mode) return null;
+  const days = data.clock.offset_hours / 24;
+  const forward = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ now: string; offset_hours: number; due: number }>("/api/demo/clock", { method: "POST", json: { hours: 24 } });
+      setClockOffset(r.offset_hours);
+      fb.toast(
+        "info",
+        `It is now ${clockLabel(r.now)}`,
+        r.due ? `${r.due} step(s) the agent had scheduled are running now: follow-ups, colleagues' answers, deliveries, reminders.` : "Nothing was scheduled in that time.",
+      );
+      reload();
+    } catch (e) {
+      fb.toast("error", "Could not fast-forward", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-slate-600" data-testid="demo-clock">
+      <span className="hidden items-center gap-1 sm:inline-flex" title="The demo company's clock. Fast-forward moves it on so you can watch a day of the agent's work in seconds.">
+        <Clock className="h-3.5 w-3.5 text-slate-400" />
+        {clockLabel(new Date(companyNow()).toISOString())}
+        {days > 0 && <span className="text-slate-400">(+{days % 1 ? days.toFixed(1) : days}d)</span>}
+      </span>
+      <button
+        onClick={forward}
+        disabled={busy}
+        className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-1 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+      >
+        <FastForward className="h-3 w-3" /> {busy ? "Moving..." : "Fast-forward a day"}
+      </button>
+    </div>
+  );
+}
+
 function SharedNotice() {
   const { data } = useData<{ last_reset_at: string | null; demo_mode: boolean }>("/api/config");
   if (!data?.demo_mode) return null;
   return (
     <span
-      className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 ring-1 ring-amber-200 sm:inline-flex"
+      className="hidden shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 ring-1 ring-amber-200 sm:inline-flex"
       title="Everyone who opens this demo works in the same company. If something changed under you, another visitor did it."
     >
       <Users className="h-3 w-3" /> Shared demo{data.last_reset_at ? `, reset ${ago(data.last_reset_at)}` : ""}
@@ -164,6 +215,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Logo className="h-5 w-5 text-slate-800" /> Tollgate
               </Link>
               <LiveTicker />
+              <DemoClock />
               <SharedNotice />
             </div>
             <MobileNav />

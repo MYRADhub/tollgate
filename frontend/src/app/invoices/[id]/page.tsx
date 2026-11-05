@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, PackageCheck, Scale, ShieldAlert, ShieldCheck, User } from "lucide-react";
-import { CriticReview, InvoiceDetail, ROLE_LABEL, api, markSeen, microMoney, money, useActor, useData } from "@/lib/api";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, MessagesSquare, PackageCheck, Scale, Search, ShieldAlert, ShieldCheck, User, Users } from "lucide-react";
+import { CriticReview, InvoiceDetail, ROLE_LABEL, api, clockLabel, markSeen, microMoney, money, useActor, useData } from "@/lib/api";
 import { BankChangeReview, PaymentApproval } from "@/components/ApprovalControls";
 import { useFeedback } from "@/components/Feedback";
 import { Button, Card, Empty, Flag, Mono, StatusPill, cx, maskAcct } from "@/components/ui";
@@ -342,6 +342,9 @@ function Emails({ inv }: { inv: InvoiceDetail }) {
 function Timeline({ inv }: { inv: InvoiceDetail }) {
   const icon = (actor: string, kind: string) => {
     if (actor === "policy") return <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />;
+    if (kind === "tool") return <Search className="h-3.5 w-3.5 text-violet-600" />;
+    if (actor.startsWith("colleague:")) return <Users className="h-3.5 w-3.5 text-emerald-600" />;
+    if (actor === "Receiving dock") return <PackageCheck className="h-3.5 w-3.5 text-emerald-600" />;
     if (kind === "injection_detected") return <EyeOff className="h-3.5 w-3.5 text-rose-600" />;
     if (actor === "critic") return <Scale className="h-3.5 w-3.5 text-amber-600" />;
     if (actor === "agent") return <Bot className="h-3.5 w-3.5 text-indigo-600" />;
@@ -362,7 +365,7 @@ function Timeline({ inv }: { inv: InvoiceDetail }) {
                 {plan?.model && <div className="text-[11px] text-slate-400">model: {plan.model}</div>}
                 <div className="flex gap-2 text-[11px] text-slate-400">
                   <span>{e.actor}</span>
-                  <span>{new Date(e.created_at).toLocaleTimeString()}</span>
+                  <span>{clockLabel(e.created_at)}</span>
                   <Mono className="text-[10px] text-slate-300">{e.hash.slice(0, 10)}</Mono>
                   {e.invoice_id !== inv.id && <span className="text-slate-400">(earlier version)</span>}
                 </div>
@@ -377,6 +380,55 @@ function Timeline({ inv }: { inv: InvoiceDetail }) {
           {(inv.cost.prompt_tokens + inv.cost.completion_tokens).toLocaleString()} tokens on Vultr Serverless Inference
         </div>
       )}
+    </Card>
+  );
+}
+
+const TOPIC: Record<string, string> = {
+  po_confirm: "Is this invoice on your PO?",
+  receipt: "Have the goods arrived?",
+  accept_charge: "Accept a charge that is not on the PO?",
+  approval: "Approval reminder",
+};
+const ANSWER: Record<string, { label: string; cls: string }> = {
+  pending: { label: "Waiting for an answer", cls: "bg-violet-50 text-violet-700" },
+  yes: { label: "Yes", cls: "bg-emerald-50 text-emerald-700" },
+  no: { label: "No", cls: "bg-rose-50 text-rose-700" },
+  later: { label: "Not yet, arriving later", cls: "bg-amber-50 text-amber-800" },
+  unknown: { label: "Doesn't know", cls: "bg-slate-100 text-slate-600" },
+  none: { label: "Reminder sent", cls: "bg-slate-100 text-slate-600" },
+};
+
+function Colleagues({ inv }: { inv: InvoiceDetail }) {
+  if (!inv.questions?.length) return null;
+  return (
+    <Card title={<span className="flex items-center gap-1.5"><MessagesSquare className="h-4 w-4 text-emerald-600" /> The agent asked colleagues</span>} pad={false}>
+      <ul className="divide-y divide-slate-100">
+        {inv.questions.map((q) => {
+          const a = ANSWER[q.answer] || ANSWER.unknown;
+          return (
+            <li key={q.id} className="space-y-1 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                <span className="font-medium text-slate-900">{q.person_name}</span>
+                <span className="text-slate-500">
+                  {TOPIC[q.topic] || q.topic}
+                  {q.po_number && <> ({q.po_number}{q.line ? `, line ${q.line}` : ""})</>}
+                </span>
+                <span className={cx("rounded px-1.5 py-0.5 text-[11px] font-medium", a.cls)}>{a.label}</span>
+              </div>
+              {q.answer_note && q.answer !== "none" && <p className="whitespace-pre-wrap rounded-md bg-slate-50 px-2.5 py-1.5 text-[12px] text-slate-700">{q.answer_note.trim()}</p>}
+              <div className="text-[11px] text-slate-400">
+                asked {clockLabel(q.created_at)}
+                {q.answered_at && <> · answered {clockLabel(q.answered_at)}</>}
+                {q.eta && <> · expected {clockLabel(q.eta)}</>}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+        Colleagues are simulated in this demo. The agent acts on the structured answer (yes, no, later), never on the wording, and code checks the answer came from the PO&apos;s owner.
+      </p>
     </Card>
   );
 }
@@ -466,7 +518,7 @@ export default function InvoicePage() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl font-semibold tracking-tight">{inv.vendor?.name || inv.vendor_name_raw || inv.file_name}</h1>
-            <StatusPill status={inv.status} />
+            <StatusPill status={inv.status} waiting={inv.agent_state?.waiting_for} />
           </div>
           <div className="mt-0.5 font-mono text-xs text-slate-500">
             {inv.number} {inv.po_number && <>· {inv.po_number}</>} · received via {inv.source}
@@ -497,6 +549,9 @@ export default function InvoicePage() {
           {inv.agent_state?.waiting_for && !busy && !["scheduled", "rejected", "superseded", "paid"].includes(inv.status) && (
             <div className="mt-1 text-xs text-slate-500">Waiting for: {inv.agent_state.waiting_for}{inv.agent_state.hold_reason ? `. ${inv.agent_state.hold_reason}` : ""}</div>
           )}
+          {inv.agent_state?.recommendation && inv.status === "on_hold" && (
+            <div className="mt-1.5 text-[12.5px] font-medium text-indigo-800">Recommendation: {inv.agent_state.recommendation}</div>
+          )}
         </div>
       </div>
 
@@ -505,6 +560,7 @@ export default function InvoicePage() {
           {actionable && <Actions inv={inv} reload={reload} />}
           <Findings inv={inv} reload={reload} />
           <ThreeWay inv={inv} />
+          <Colleagues inv={inv} />
           <CriticCard reviews={inv.critic} />
           {!actionable && <Actions inv={inv} reload={reload} />}
           <Emails inv={inv} />

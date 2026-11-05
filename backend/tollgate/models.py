@@ -26,7 +26,9 @@ Money = Numeric(14, 2)
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    from . import clock
+
+    return clock.now()
 
 
 def new_id() -> str:
@@ -452,3 +454,35 @@ class PaymentRun(Base):
     approved_by: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DemoClock(Base):
+    """How far the demo company's clock runs ahead of real time (one row)."""
+
+    __tablename__ = "demo_clock"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    offset_s: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ColleagueQuestion(Base):
+    """A question the agent put to someone inside Halden (a budget owner, an
+    approver) and the structured answer. Code, not the wording of a reply,
+    decides what an answer allows: attach_po needs answer == "yes" on a
+    po_confirm question for that PO, from that PO's owner."""
+
+    __tablename__ = "colleague_questions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invoice_id: Mapped[str] = mapped_column(String(12), index=True)
+    topic: Mapped[str] = mapped_column(String(20))  # receipt | po_confirm | accept_charge | approval
+    person_name: Mapped[str] = mapped_column(String(120))
+    person_email: Mapped[str] = mapped_column(String(200))
+    po_number: Mapped[str | None] = mapped_column(String(40))
+    line: Mapped[int | None] = mapped_column(Integer)
+    amount: Mapped[Decimal | None] = mapped_column(Money)
+    question_email_id: Mapped[int | None] = mapped_column(Integer)
+    reply_email_id: Mapped[int | None] = mapped_column(Integer)
+    answer: Mapped[str] = mapped_column(String(20), default="pending")  # pending | yes | no | later | unknown | none
+    answer_note: Mapped[str] = mapped_column(Text, default="")
+    eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

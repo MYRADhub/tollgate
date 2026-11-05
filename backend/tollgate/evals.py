@@ -4,7 +4,7 @@
 
 Four suites, each case run on a fresh database:
   attacks    every attack-lab template must be stopped before payment
-  inbox      every demo invoice must reach its expected outcome
+  inbox      every demo invoice must reach its expected outcome after a simulated day of exception work
   contracts  model-extracted contract terms must equal the reviewed terms
   critic     the critic must disagree with planted errors and agree with correct proposals
   inquiries  vendor questions answered correctly, with nothing disclosed to the wrong sender
@@ -31,7 +31,10 @@ INBOX_EXPECT = {
     "ostara-OC-7720.pdf": {"awaiting_approval"},
     "kestrel-KFL-88812-R.pdf": {"rejected", "awaiting_vendor", "on_hold"},
     "brightline-BIS-2077.pdf": {"awaiting_vendor"},
-    "granite-GE-5561.pdf": {"on_hold", "awaiting_vendor"},
+    # After a simulated day: the backorder arrives, the missing PO is confirmed, the rush fee accepted.
+    "granite-GE-5561.pdf": {"scheduled"},
+    "granite-GE-5570.pdf": {"scheduled"},
+    "lumen-LOS-3420.pdf": {"scheduled"},
     "vantage-VCS-10488.pdf": {"on_hold"},
     "brightline-BIS-2090.pdf": {"on_hold"},
     "apex-ASA-0091.pdf": {"rejected", "on_hold"},
@@ -50,6 +53,20 @@ def fresh_db():
 
     with db.session_scope() as s:
         reset_and_seed(s)
+    from . import clock
+
+    clock.forget()
+
+
+def advance(hours: float) -> None:
+    from . import clock
+    from .config import get_settings
+    from .db import session_scope
+    from .worker import drain
+
+    with session_scope() as s:
+        clock.advance(s, hours, get_settings().max_clock_offset_days)
+    drain()
 
 
 def suite_attacks(runs: int) -> list[dict]:
@@ -98,6 +115,9 @@ def suite_inbox(runs: int) -> list[dict]:
         with session_scope() as s:
             ids = {d.file_name: pipeline.ingest(s, d.pdf(), d.file_name).id for d in demo_inbox()}
         drain()
+        advance(1)  # colleagues answer
+        advance(1)  # the agent acts on their answers
+        advance(24)  # the backorder arrives
         with session_scope() as s:
             for name, iid in ids.items():
                 inv = s.get(Invoice, iid)

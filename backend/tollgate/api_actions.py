@@ -124,7 +124,7 @@ def record_receipt(s: Session, invoice_id: str, *, user: str) -> GoodsReceipt:
             lines.append(ReceiptLine(sku=sku, quantity=missing))
     if not lines:
         raise ActionError("everything on this PO is already received")
-    gr = GoodsReceipt(po_id=po.id, received_on=date.today(), received_by=user, lines=lines)
+    gr = GoodsReceipt(po_id=po.id, received_on=utcnow().date(), received_by=user, lines=lines)
     s.add(gr)
     s.flush()
     audit.record(s, actor=user, kind="goods_received", invoice_id=inv.id,

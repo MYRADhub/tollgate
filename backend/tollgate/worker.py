@@ -55,6 +55,22 @@ def _run_job(job_id: int) -> None:
             from . import inquiry
 
             inquiry.handle(s, int(job.payload["email_id"]), job.payload.get("headers"), simulate=bool(job.payload.get("simulate")))
+        elif job.kind == "colleague_reply":
+            from . import colleagues
+
+            colleagues.reply(s, int(job.payload["question_id"]))
+        elif job.kind == "world_receipt":
+            from . import colleagues
+
+            colleagues.world_receipt(s, job.invoice_id, job.payload.get("po_number", ""))
+        elif job.kind == "check_in":
+            from . import colleagues
+
+            colleagues.check_in(s, job.invoice_id, job.payload.get("reason", "still waiting"))
+        elif job.kind == "approval_reminder":
+            from . import colleagues
+
+            colleagues.remind_approver(s, int(job.payload["approval_id"]))
         elif job.kind == "plan_run":
             from sqlalchemy import select as _select
 

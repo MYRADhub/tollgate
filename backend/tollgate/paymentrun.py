@@ -118,7 +118,9 @@ def candidates(s: Session) -> list[Candidate]:
 
 def propose(s: Session, actor: str = "agent", today: date | None = None) -> PaymentRun | None:
     cfg = get_settings()
-    today = today or date.today()
+    from . import clock
+
+    today = today or clock.today()
     for old in s.execute(select(PaymentRun).where(PaymentRun.status == "proposed")).scalars():
         s.delete(old)
     s.flush()

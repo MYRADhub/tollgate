@@ -30,13 +30,13 @@ test.describe.serial("guided demo, end to end", () => {
 
   test("dashboard starts empty and the guided demo loads the inbox", async ({ page, request }) => {
     await page.goto("/");
-    await expect(page.getByText("Guided demo: eight things to try").first()).toBeVisible();
+    await expect(page.getByText("Guided demo: nine things to try").first()).toBeVisible();
     await expect(page.getByText("No invoices yet").first()).toBeVisible();
     await page.getByRole("button", { name: "Load the demo inbox" }).click();
-    await expect(page.getByText("Ten invoices are in the AP inbox").first()).toBeVisible();
+    await expect(page.getByText("Twelve invoices are in the AP inbox").first()).toBeVisible();
     await settle(request);
     await expect(page.getByRole("link", { name: /Polaris Network Services/ }).first()).toBeVisible();
-    await expect(page.getByText("1 of 8 done").first()).toBeVisible();
+    await expect(page.getByText("1 of 9 done").first()).toBeVisible();
     await expect(page.getByText("Agent activity").first()).toBeVisible();
   });
 
@@ -83,14 +83,31 @@ test.describe.serial("guided demo, end to end", () => {
     await expect(page.getByText(/removing the 118.80 overcharge/).first()).toBeVisible();
   });
 
-  test("goods arriving releases a held invoice, net of the price cap", async ({ page, request }) => {
-    await page.goto(`/invoices/${await invoiceId(request, "GE-5561")}`);
-    await page.getByRole("button", { name: "Log goods received" }).click();
-    await expect(page.getByText("Goods receipt logged").first()).toBeVisible();
-    await settle(request);
+  test("the agent clears exceptions by asking colleagues, and the briefing says so", async ({ page, request }) => {
+    const id = await invoiceId(request, "GE-5570");
+    await expect.poll(async () => (await (await request.get(`${API}/api/invoices/${id}`)).json()).status, { timeout: 60_000 }).toBe("scheduled");
+    await page.goto("/");
+    await expect(page.getByText("While you were away").first()).toBeVisible();
+    await expect(page.getByText(/Exceptions cleared \(\d+\)/).first()).toBeVisible();
+    await expect(page.getByText("Verify a bank account change").first()).toBeVisible();
+    await page.goto(`/invoices/${id}`);
+    await expect(page.getByText("The agent asked colleagues").first()).toBeVisible();
+    await expect(page.getByText(/Searched Granite Electrical Co\.'s open POs/).first()).toBeVisible();
+    await expect(page.getByText(/Attached PO-24111 to GE-5570/).first()).toBeVisible();
+  });
+
+  test("fast-forward a day: the backorder arrives and the held invoice pays, net of the price cap", async ({ page, request }) => {
+    const id = await invoiceId(request, "GE-5561");
+    await expect.poll(async () => (await (await request.get(`${API}/api/invoices/${id}`)).json()).agent_state.waiting_for, { timeout: 60_000 }).toBe("receipt");
+    await page.goto(`/invoices/${id}`);
+    await expect(page.getByText("Waiting for goods").first()).toBeVisible();
+    await page.getByRole("button", { name: "Fast-forward a day" }).click();
+    await expect(page.getByText(/It is now/).first()).toBeVisible();
+    await expect.poll(async () => (await (await request.get(`${API}/api/invoices/${id}`)).json()).status, { timeout: 60_000 }).toBe("scheduled");
     await page.reload();
     await expect(page.getByText("Payment scheduled").first()).toBeVisible();
     await expect(page.getByText("-$43.20").first()).toBeVisible();
+    await expect(page.getByText(/Receiving dock logged receipt/).first()).toBeVisible();
   });
 
   test("a bank change needs a callback and two different people", async ({ page, request }) => {
@@ -188,7 +205,7 @@ test.describe.serial("guided demo, end to end", () => {
 
   test("the audit chain verifies and the guided demo is complete", async ({ page, request }) => {
     // "seen" steps live in this browser's storage; each test starts with a fresh one
-    for (const n of ["PNS-55120", "BIS-2090"]) {
+    for (const n of ["PNS-55120", "BIS-2090", "GE-5570"]) {
       await page.goto(`/invoices/${await invoiceId(request, n)}`);
       await expect(page.getByText(n).first()).toBeVisible();
     }

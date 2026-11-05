@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from . import api_actions, audit, pipeline
+from . import api_actions, audit, clock, pipeline
 from .agent import required_role
 from .config import get_settings
 from .db import SessionLocal, get_session, init_db, session_scope
@@ -184,7 +184,15 @@ def config():
         "controls": pipeline.checks_run(),
         "demo_mode": settings.demo_mode,
         "last_reset_at": _last_reset(),
+        "clock": {"now": clock.now().isoformat(), "offset_hours": round(clock.offset_s() / 3600, 2), "max_days": settings.max_clock_offset_days},
     }
+
+
+@app.get("/api/briefing")
+def get_briefing(s: Session = Depends(get_session)):
+    from . import briefing
+
+    return briefing.build(s)
 
 
 @app.get("/api/stats")
@@ -311,6 +319,12 @@ def get_invoice(invoice_id: str, s: Session = Depends(get_session)):
     d["timeline"] = [
         ser(e, ["id", "actor", "kind", "summary", "detail", "created_at", "hash", "invoice_id"])
         for e in s.execute(select(AuditEvent).where(AuditEvent.invoice_id.in_(chain_ids)).order_by(AuditEvent.id)).scalars()
+    ]
+    from .models import ColleagueQuestion
+
+    d["questions"] = [
+        ser(q, ["id", "topic", "person_name", "po_number", "line", "amount", "answer", "answer_note", "eta", "created_at", "answered_at"])
+        for q in s.execute(select(ColleagueQuestion).where(ColleagueQuestion.invoice_id.in_(chain_ids)).order_by(ColleagueQuestion.id)).scalars()
     ]
     d["superseded_by"] = s.execute(select(Invoice.id).where(Invoice.supersedes_id == inv.id)).scalar_one_or_none()
     d["critic"] = [
@@ -984,7 +998,32 @@ def demo_reset(request: Request):
 
     with session_scope() as s:
         reset_and_seed(s)
+    clock.forget()
     return {"ok": True}
+
+
+class ClockBody(BaseModel):
+    hours: float = 24
+
+
+@app.post("/api/demo/clock")
+def demo_clock(body: ClockBody, request: Request):
+    """Fast-forward the company clock so follow-ups, colleagues' answers and
+    deliveries that were due in the next hours happen now."""
+    if not settings.demo_mode:
+        raise HTTPException(403)
+    if not 1 <= body.hours <= 72:
+        raise HTTPException(400, "fast-forward between 1 and 72 hours")
+    if not limiter.take([(f"clock:{client_ip(request)}", settings.fast_forwards_per_ip_per_hour)]):
+        raise HTTPException(429, "Too many fast-forwards from this visitor; try again later.")
+    with session_scope() as s:
+        try:
+            clock.advance(s, body.hours, settings.max_clock_offset_days)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        due = s.execute(select(func.count(Job.id)).where(Job.status == "queued", Job.run_after <= clock.now())).scalar_one()
+        audit.record(s, actor="demo", kind="clock", summary=f"Demo clock moved forward {body.hours:g} hours to {clock.now():%a %d %b %H:%M}; {due} scheduled step(s) now due")
+    return {"now": clock.now().isoformat(), "offset_hours": round(clock.offset_s() / 3600, 2), "due": due}
 
 
 @app.post("/api/demo/vendor-reply/{invoice_id}")

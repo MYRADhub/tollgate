@@ -5,12 +5,14 @@ import { useRef, useState } from "react";
 import { Bot, Cpu, FileUp, HandCoins, Mail, RotateCcw, Scale, ShieldAlert, User } from "lucide-react";
 import { AuditEvent, InvoiceRow, Stats, ago, api, compactMoney, microMoney, money, useData, useLive } from "@/lib/api";
 import { useFeedback } from "@/components/Feedback";
+import { Briefing } from "@/components/Briefing";
 import { Tour } from "@/components/Tour";
-import { Button, Card, Empty, Flag, Stat, StatusPill, cx } from "@/components/ui";
+import { AGENT_WORKING, Button, Card, Empty, Flag, Stat, StatusPill, cx } from "@/components/ui";
 
-const FILTERS: { key: string; label: string; statuses?: string[] }[] = [
+const FILTERS: { key: string; label: string; statuses?: string[]; keep?: (r: InvoiceRow) => boolean }[] = [
   { key: "all", label: "All" },
-  { key: "attention", label: "Needs a person", statuses: ["on_hold", "awaiting_approval"] },
+  { key: "attention", label: "Needs a person", statuses: ["on_hold", "awaiting_approval"], keep: (r) => !AGENT_WORKING.includes(r.waiting_for || "") },
+  { key: "working", label: "Agent working", statuses: ["on_hold"], keep: (r) => AGENT_WORKING.includes(r.waiting_for || "") },
   { key: "vendor", label: "Waiting on vendor", statuses: ["awaiting_vendor"] },
   { key: "paid", label: "Scheduled", statuses: ["scheduled", "paid"] },
   { key: "rejected", label: "Rejected", statuses: ["rejected", "superseded"] },
@@ -118,7 +120,8 @@ export default function InvoicesPage() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const f = FILTERS.find((x) => x.key === filter)!;
-  const { data: rows, reload } = useData<InvoiceRow[]>(`/api/invoices${f.statuses ? `?status=${f.statuses.join(",")}` : ""}`);
+  const { data: fetched, reload } = useData<InvoiceRow[]>(`/api/invoices${f.statuses ? `?status=${f.statuses.join(",")}` : ""}`);
+  const rows = fetched && f.keep ? fetched.filter(f.keep) : fetched;
   const { data: all, reload: reloadAll } = useData<InvoiceRow[]>("/api/invoices");
   const { data: stats } = useData<Stats>("/api/stats");
   const { data: cfg } = useData<{ last_reset_at: string | null }>("/api/config");
@@ -188,7 +191,9 @@ export default function InvoicesPage() {
         }}
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <Briefing />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat
           label="Recovered for you"
           value={stats ? compactMoney(stats.recovered + stats.discounts) : "-"}
@@ -202,17 +207,7 @@ export default function InvoicesPage() {
           tone="brand"
         />
         <Stat label="Wrong payments stopped" value={stats ? compactMoney(stats.prevented) : "-"} sub={stats ? `${stats.caught.length} invoices held or rejected` : undefined} tone="bad" />
-        <Stat label="Paid with no human touch" value={stats ? `${stats.touchless} of ${stats.decided}` : "-"} sub="invoices decided" />
         <Stat label="Scheduled to pay" value={stats ? compactMoney(stats.scheduled_total) : "-"} sub="to verified accounts only" tone="good" />
-        <Stat
-          label="Waiting on a person"
-          value={stats?.pending_approvals ?? "-"}
-          sub={
-            <Link href="/approvals" className="text-indigo-600 hover:underline">
-              Open approvals
-            </Link>
-          }
-        />
       </div>
 
       {stats && <CostStrip stats={stats} />}
@@ -278,7 +273,7 @@ export default function InvoicesPage() {
                         {r.recover_amount > 0 && <div className="text-[11px] text-sky-700">-{money(r.recover_amount)} owed</div>}
                       </td>
                       <td className="px-2 py-2.5">
-                        <StatusPill status={r.status} />
+                        <StatusPill status={r.status} waiting={r.waiting_for} />
                       </td>
                       <td className="max-w-[420px] px-2 py-2.5">
                         <Flags r={r} />
@@ -300,7 +295,7 @@ export default function InvoicesPage() {
                         </div>
                         <div className="text-right">
                           <div className="text-sm tabular-nums">{money(r.total, r.currency || "USD")}</div>
-                          <StatusPill status={r.status} />
+                          <StatusPill status={r.status} waiting={r.waiting_for} />
                         </div>
                       </div>
                       <Flags r={r} />

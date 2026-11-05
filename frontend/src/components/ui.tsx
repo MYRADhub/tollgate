@@ -21,8 +21,13 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   failed: { label: "Error", cls: "bg-rose-100 text-rose-800 ring-rose-300" },
 };
 
-export function StatusPill({ status, className }: { status: string; className?: string }) {
-  const s = STATUS[status] || { label: status, cls: "bg-slate-100 text-slate-700 ring-slate-200" };
+export const AGENT_WORKING = ["colleague", "receipt", "agent"];
+
+export function StatusPill({ status, waiting, className }: { status: string; waiting?: string | null; className?: string }) {
+  const s =
+    status === "on_hold" && waiting && AGENT_WORKING.includes(waiting)
+      ? { label: waiting === "receipt" ? "Waiting for goods" : "Agent working", cls: "bg-violet-50 text-violet-700 ring-violet-200" }
+      : STATUS[status] || { label: status, cls: "bg-slate-100 text-slate-700 ring-slate-200" };
   return <span className={cx("inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", s.cls, className)}>{s.label}</span>;
 }
 

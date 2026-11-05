@@ -283,7 +283,8 @@ def run_controls(s: Session, inv: Invoice) -> checks.CheckResult:
         kept.append(f)
     cleared = [f for k, f in previous.items() if k not in {(x.code, x.title) for x in result.findings} and not f.resolved]
     inv.findings = kept
-    inv.agent_state = {**(inv.agent_state or {}), "line_matches": _jsonable(result.line_matches)}
+    ever = sorted(set((inv.agent_state or {}).get("exceptions", [])) | {f.code for f in kept if f.severity == Severity.block and not f.resolved})
+    inv.agent_state = {**(inv.agent_state or {}), "line_matches": _jsonable(result.line_matches), "exceptions": ever}
     s.flush()
     blocking = [f for f in kept if f.severity.value == "block" and not f.resolved]
     recover = [f for f in kept if f.severity.value == "recover"]
