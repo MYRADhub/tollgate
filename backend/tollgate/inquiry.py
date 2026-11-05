@@ -76,10 +76,15 @@ def identify(s: Session, sender: str, auth_results: str | None = None) -> Sender
     owners = [v for v in vendors if v.email and _domain(v.email) == dom]
     if dom and dom not in FREEMAIL and len(owners) == 1:
         return Sender(addr, owners[0], "domain", f"same company domain as {owners[0].name}")
+    local = addr.split("@", 1)[0]
     for v in vendors:
         vd = _domain(v.email or "")
         if vd and vd not in FREEMAIL and dom != vd and difflib.SequenceMatcher(None, dom, vd).ratio() >= 0.85:
             return Sender(addr, None, "lookalike", f"domain {dom} imitates {vd} ({v.name})")
+        # on a shared free-mail domain the account name is what imitates the vendor
+        vl = (v.email or "").lower().split("@", 1)[0]
+        if vd and vd == dom and vd in FREEMAIL and local != vl and difflib.SequenceMatcher(None, local, vl).ratio() >= 0.85:
+            return Sender(addr, None, "lookalike", f"address {addr} imitates {v.email.lower()} ({v.name})")
     return Sender(addr, None, "unknown", "not an address in the vendor master")
 
 

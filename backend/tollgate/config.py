@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,6 +71,11 @@ class Settings(BaseSettings):
     benchmark_cost_per_invoice_usd: float = 2.78
     cors_origins: str = "http://localhost:3000"
 
+
+    @field_validator("gmail_app_password")
+    @classmethod
+    def _no_spaces(cls, v: str) -> str:
+        return v.replace(" ", "")  # Google shows app passwords in groups of four
 
     def alias(self, suffix: str = "") -> str:
         """<user>+<tag>[-suffix]@domain for the configured mailbox."""

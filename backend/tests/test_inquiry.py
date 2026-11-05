@@ -222,3 +222,13 @@ def test_unauthenticated_unknown_sender_gets_no_real_reply(c):
     drain()
     q = c.get("/api/inquiries").json()["items"][0]
     assert q["reply"] and "could not match" in q["reply"]["body"]
+
+
+def test_lookalike_account_on_a_shared_freemail_domain(db):
+    with session_scope() as s:
+        v = s.execute(select(Vendor).where(Vendor.name == "Brightline Industrial Supply")).scalar_one()
+        v.email = "halden.ap+tollgate-brightline@gmail.com"
+        s.flush()
+        assert inquiry.identify(s, "halden.ap+tollgate-brightiine@gmail.com").match == "lookalike"
+        assert inquiry.identify(s, "halden.ap+tollgate-brightline@gmail.com").match == "address"
+        assert inquiry.identify(s, "someone.else@gmail.com").match == "unknown"

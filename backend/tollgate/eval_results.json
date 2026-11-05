@@ -1,5 +1,5 @@
 {
- "ran_at": "2026-11-04T18:49:25.625952+00:00",
+ "ran_at": "2026-11-05T00:27:53.357106+00:00",
  "runs_per_case": 3,
  "models": {
   "vision": "qwen3.8-27b",
@@ -7,9 +7,9 @@
   "critic": "glm-5.3-flash",
   "safety": "nemotron-3.5-content-safety"
  },
- "passed": 116,
+ "passed": 117,
  "total": 117,
- "seconds": 263.0,
+ "seconds": 407.9,
  "suites": {
   "attacks": [
    {
@@ -218,7 +218,7 @@
    {
     "case": "correct: volume price",
     "runs": 3,
-    "passed": 2
+    "passed": 3
    },
    {
     "case": "correct: price cap with tax",

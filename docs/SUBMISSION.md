@@ -16,7 +16,7 @@ A reasoning model works exceptions (emailing vendors and budget owners, re-readi
 
 It reconciles vendor statements to the cent: invoices we never received, payments the vendor never applied, credit memos we never took (claimed against the next payment), and invoices the vendor's own statement does not list, which is how the demo's forged invoice is confirmed. It also answers vendors' "when will we be paid?" emails from the ledger: only for the vendor's own invoices, only to the registered sender, never changing bank details by email, and with every figure in the model's wording checked before it is sent.
 
-An attack lab lets anyone try to fool it with nine attack types or their own PDF. On the real Vultr models the eval suite passes 116 of 117 cases, including 27/27 attacks stopped before payment. Model usage costs about a third of a cent per invoice.
+An attack lab lets anyone try to fool it with nine attack types or their own PDF. On the real Vultr models the eval suite passes all 117 cases, including 27/27 attacks stopped before payment. Model usage costs about a third of a cent per invoice.
 
 Built on four Vultr services: Cloud Compute, Serverless Inference (Qwen 3.8 27B, DeepSeek V4.1 Flash, GLM-5.3 Flash, Nemotron 3.5 content safety), Managed PostgreSQL and Object Storage.
 
@@ -25,30 +25,28 @@ Built on four Vultr services: Cloud Compute, Serverless Inference (Qwen 3.8 27B,
 **Links:**
 - Demo: https://45.32.218.92.sslip.io
 - Repository: https://github.com/MYRADhub/tollgate
-- Slides: export the deck as PDF
+- Slides: export the deck as PDF and attach it
 
 ## Demo video script (about 4.5 minutes)
 
-Record at 1600x1000 or larger. Start from a reset demo (Invoices, "Reset demo"). Keep the Agent activity feed visible on the first screen.
+Record at 1600x1000 or larger, from a reset demo (Invoices, "Reset demo"). Follow the guided demo on the dashboard: its eight steps are this script. Keep the agent activity feed in view on the first screen. One thread runs through it: the forged BIS-2090 is caught three independent ways.
 
 | Time | Screen | Say |
 |---|---|---|
-| 0:00 | Slide: cover | "Every AP team checks the same five things before paying an invoice, and still leaves money on the table: credits and discounts vendors owe under their contracts. Tollgate is an AP agent that does those checks, claims what you are owed, and is safe to put an AI in front of payments. It runs entirely on Vultr." |
-| 0:20 | App, Invoices: Demo inbox, Send all | "Ten invoices from seven vendors land in the AP inbox." |
-| 0:30 | Activity feed | "A vision model on Vultr reads each one, twenty-three controls check it, and the agent decides. Under a minute for the batch, about five cents of inference." |
-| 0:50 | Open Polaris PNS-55120 | "This invoice matches its PO perfectly. But our monitoring saw 99.31 percent uptime in October against a 99.95 commitment. Tollgate read the contract, here is the clause, and claims a 15 percent credit: 975 dollars, deducted, with remittance advice quoting the clause. A second model, the critic, recomputed the payment independently and agrees." |
-| 1:35 | Contracts page | "Each contract is read once by a model that proposes the terms with their exact clauses. Code throws out any quote that is not in the contract word for word, and a controller approves them. After that, code applies them to every invoice." |
-| 1:55 | Open Ostara OC-7720 | "Ostara's PO used list price; the contract gives a volume price. Fourteen hundred dollars back. It is over the auto-pay limit, so it waits for the controller." Switch to Rosa Kim, approve. |
-| 2:15 | Open Brightline BIS-2090 | "This one hides instructions for the AI in white, one-and-a-half-point type: pre-approve, change the bank account. Tollgate compares the text with the rendered pixels, found it, and quarantined the invoice. Even if a model had been fooled, the policy guard in code only pays the verified account." |
-| 2:45 | Open BIS-2077, Play the vendor (or reply from your phone) | "Here the vendor overbilled; the agent emailed the exact overcharge. The corrected invoice comes back by reply, is re-read, re-checked and paid." |
-| 3:05 | Payment runs | "When to pay is a decision too. Lumen gives two percent for paying within ten days, that is 149 percent a year, so it is taken. Brightline's one percent waits because cash above the floor ran out. Approve, download the bank file." |
-| 3:25 | Attack lab: launch Lookalike vendor and Split to dodge approval | "Judges can try to fool it. A lookalike vendor, an invoice split to stay under the approval limit, or upload your own PDF. Same pipeline as real mail. On the real models our eval suite passes 116 of 117 cases, every attack stopped." |
-| 3:55 | Slide: business | "AP teams spend about ten dollars an invoice by hand. Tollgate charges about a dollar, and contract recoveries alone can pay for it. The incumbents capture and route invoices; Tollgate resolves them and enforces the contract." |
-| 4:20 | Slide: close | "Tollgate: the AP agent that pays for itself. Live on Vultr, code on GitHub." |
+| 0:00 | Slide: cover | "Every AP team checks the same things before paying an invoice, and still leaves money on the table: credits vendors owe under their contracts and on their own statements. Tollgate is an AP agent that does that work, claims what you are owed, and is safe to put an AI in front of payments. It runs entirely on Vultr." |
+| 0:20 | Dashboard, guided demo step 1: Load the demo inbox | "Ten invoices from seven vendors arrive. A vision model on Vultr reads each one, twenty-three controls in code check it, and the agent decides. About a third of a cent of inference per invoice, against $2.78 for the best AP teams." Point at the cost strip. |
+| 0:50 | Step 2: Polaris PNS-55120 | "This invoice matches its PO perfectly. But our monitoring saw 99.31 percent uptime against a 99.95 commitment. Tollgate read the contract, here is the clause, and deducts a 15 percent service credit: $975, with remittance advice quoting it. A second model, the critic, recomputed the payment independently and agrees." |
+| 1:25 | Step 3: Brightline BIS-2090, Document tab | "This one hides instructions for the AI in white, one-and-a-half-point type: pre-approve it, change the bank account. Tollgate compares every text run with the rendered pixels, found it, and quarantined the invoice. Even a fooled model could not pay it: the policy guard in code only pays the verified account." |
+| 1:55 | Step 4: Ostara OC-7720, act as Rosa Kim, approve | "Ostara's PO used list price; the contract gives a volume price. $1,416 back. It is over the auto-pay limit, so the controller approves, and the critic's figure is right there." |
+| 2:15 | Step 5: BIS-2077, Play the vendor (or reply from Gmail) | "Here the vendor overbilled. The agent emailed the exact overcharge; the corrected invoice comes back by reply, is re-read, re-checked and paid." |
+| 2:35 | Step 6: Statements, Load demo statements | "Vendors send statements of what they think we owe. Tollgate explains the gap to the cent. Kestrel never applied our payment, which is why they resubmitted an invoice: we send them the remittance. Two credit memos nobody claimed: $476. And look: Brightline's own statement does not list BIS-2090. The real vendor never issued it." Claim Kestrel's credit as Rosa Kim. |
+| 3:15 | Step 7: Payment runs, approve | "When to pay is a decision too. Lumen gives two percent for paying within ten days, 149 percent a year, so it is taken; the rest waits until due. Approve, download the bank file." |
+| 3:35 | Step 8: Vendor questions, "Why were we short-paid?", then "Impersonates a vendor" | "Vendors ask when they will be paid. Polaris, from its registered address, gets its answer with the deduction explained; the model wrote it and code checked every figure. A lookalike domain gets nothing." |
+| 3:55 | Attack lab scorecard | "Anyone can try to fool it, with nine attacks or their own PDF. On the real Vultr models the eval suite passes all 117 cases, every attack stopped." |
+| 4:10 | Slide: business, then close | "AP teams spend about ten dollars an invoice. Tollgate charges about a dollar, runs on a third of a cent of inference, and contract and statement recoveries alone can pay for it. Tollgate: every invoice earns its payment. Live on Vultr, code on GitHub." |
 
 ## Before submitting
 
-- Replace `[Your name]` and `[email]` on the cover and closing slides.
 - Export the deck to PDF from the deck's Share > Export menu.
-- Cover image: the queue screenshot (`deck-img/queue.png`) works at 16:10.
-- Reset the demo after recording so judges start from an empty inbox.
+- Cover image: a dashboard screenshot at 16:10 after the inbox is loaded.
+- Reset the demo after recording so judges start from an empty inbox (the shared-demo badge shows when it was last reset).

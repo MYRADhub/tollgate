@@ -884,7 +884,12 @@ def _presets(s: Session) -> list[dict]:
     by = {v.name.split()[0].lower(): v.email for v in s.execute(select(Vendor)).scalars()}
     bl = by.get("brightline", "billing@brightline.example.com")
     user, dom = bl.split("@", 1)
-    spoof = f"{user}@{dom.replace('brightline', 'brightiine')}" if "brightline" in dom else "accounts@brightiine-industrial.com"
+    if "brightline" in dom:
+        spoof = f"{user}@{dom.replace('brightline', 'brightiine')}"
+    elif "brightline" in user:  # vendor addresses are aliases on a shared mailbox: imitate the account name
+        spoof = f"{user.replace('brightline', 'brightiine')}@{dom}"
+    else:
+        spoof = "accounts@brightiine-industrial.com"
     return [
         {"key": "status", "label": "When will we be paid?", "who": "Brightline (registered address)", "sender": bl,
          "subject": "Payment status BIS-2077", "body": "Hi,\n\nCould you tell us when invoice BIS-2077 will be paid?\n\nThanks,\nBrightline AR"},

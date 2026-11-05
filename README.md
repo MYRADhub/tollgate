@@ -10,6 +10,15 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 - Video: _link_
 - Slides: _link_
 
+**Judging in five minutes:** open the live demo and follow the guided demo on the dashboard (eight steps). The thread to watch is BIS-2090, a forged invoice caught three independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset.
+
+| | |
+|---|---|
+| Money recovered in the demo | $2,434.20 under contracts (SLA credit, volume price, price cap) and $476.20 in credit memos from vendor statements |
+| Model cost | about $0.0033 per invoice on Vultr Serverless Inference (best-in-class AP teams: $2.78, Ardent Partners 2025) |
+| Evals on the real models | 117/117, including 27/27 attacks stopped before payment |
+| Tests | 132 backend tests, 16 browser tests (also run against the live deployment) |
+
 ---
 
 ## The problem
@@ -110,12 +119,12 @@ Every model call made while working an invoice is charged to it. On the real mod
 | Attacks stopped before payment (9 techniques) | 27/27 |
 | Demo inbox reaches its expected outcome and recovery amounts (10 invoices) | 30/30 |
 | Contract terms extracted exactly, with verbatim quotes (6 contracts) | 18/18 |
-| Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 17/18 |
+| Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 18/18 |
 | Vendor questions: correct answer, nothing disclosed to the wrong sender, bank details unchanged (6 cases) | 18/18 |
 | Vendor statements: every line read exactly, reconciliation fully explained (2 statements) | 6/6 |
-| **Total** | **116/117** |
+| **Total** | **117/117** |
 
-The one miss is the critic answering "concerns" instead of "agree" on a correct proposal, which errs on the safe side (a controller looks). There are also 119 unit and integration tests and 16 browser tests (see Running locally).
+Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 132 unit and integration tests and 16 browser tests (see Running locally).
 
 ## Vultr services used
 
