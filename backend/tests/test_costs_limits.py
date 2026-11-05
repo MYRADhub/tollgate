@@ -85,3 +85,17 @@ def test_attribution_is_scoped_to_the_block():
     with llm.attribute("abc"):
         assert llm._invoice.get() == "abc"
     assert llm._invoice.get() is None
+
+
+def test_reset_cooldown_protects_a_visitor_mid_demo(db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from tollgate.api import app
+    from tollgate.config import get_settings
+
+    c = TestClient(app)
+    monkeypatch.setattr(get_settings(), "reset_cooldown_s", 600)
+    r = c.post("/api/demo/reset")
+    assert r.status_code == 429 and "already fresh" in r.json()["detail"]
+    monkeypatch.setattr(get_settings(), "reset_cooldown_s", 0)
+    assert c.post("/api/demo/reset").status_code == 200

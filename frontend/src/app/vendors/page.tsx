@@ -1,10 +1,47 @@
 "use client";
 
-import { useData, money } from "@/lib/api";
+import Link from "next/link";
+import { useState } from "react";
+import { api, useData, money } from "@/lib/api";
+import { useFeedback } from "@/components/Feedback";
 import { Fingerprint } from "lucide-react";
-import { Card, Empty, Mono, cx } from "@/components/ui";
+import { Button, Card, Empty, Mono, cx } from "@/components/ui";
 
-type FP = { trained_on: number; holdout_genuine: number; false_alarms: number; caught: number; forged_total: number; producer: string; fonts: string; forgeries: Record<string, { caught: number; of: number }> };
+function BillingSwitch() {
+  const fb = useFeedback();
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState<Record<number, string>>({});
+  const send = async (step: number) => {
+    setBusy(true);
+    try {
+      const r = await api<{ id: string; number: string }>(`/api/demo/billing-switch/${step}`, { method: "POST" });
+      setSent((x) => ({ ...x, [step]: r.id }));
+      fb.toast("info", `Polaris sent ${r.number}`, step === 1 ? "Open it: the fingerprint will not recognise the new layout." : "If a controller confirmed the first one, this one should pass.");
+    } catch (e) {
+      fb.toast("error", "Could not send", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mx-4 mb-4 mt-3 rounded-lg bg-indigo-50/60 p-3 text-[12.5px] text-slate-700 ring-1 ring-indigo-100">
+      <div className="font-medium text-slate-900">Try it: the model learns from your team</div>
+      <p className="mt-0.5">
+        Vendors do change billing systems. Polaris has just moved from NetSuite to Zuora, so its next invoice looks nothing like the last forty. The model holds it. A controller calls Polaris on the
+        number on file, confirms it, and clears the finding: the model learns the new layout as a second one, and Polaris&apos;s next invoice passes. Every other layout is still checked against the usual one.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={() => send(1)} disabled={busy}>1. Polaris sends its first Zuora invoice</Button>
+        {sent[1] && <Link href={`/invoices/${sent[1]}`} className="text-indigo-600 hover:underline">open it, then clear the finding as Rosa Kim</Link>}
+        <Button size="sm" onClick={() => send(2)} disabled={busy}>2. Polaris sends the next one</Button>
+        {sent[2] && <Link href={`/invoices/${sent[2]}`} className="text-indigo-600 hover:underline">open it</Link>}
+      </div>
+    </div>
+  );
+}
+
+type Learned = { label: string; confirmed: { by: string; invoice: string; at: string }[] };
+type FP = { learned_layouts?: Learned[]; trained_on: number; holdout_genuine: number; false_alarms: number; caught: number; forged_total: number; producer: string; fonts: string; forgeries: Record<string, { caught: number; of: number }> };
 type V = { id: string; name: string; email: string; tax_id: string; bank_name: string; bank_account: string; bank_verified_at: string | null; payment_terms_days: number; status: string; invoices: number; exceptions: number; fingerprint: FP | null };
 type PO = { number: string; vendor: string; department: string; budget_owner_name: string; status: string; issued_on: string; total: number; lines: { sku: string; description: string; quantity: number; unit_price: number; received: number }[] };
 
@@ -61,7 +98,8 @@ export default function VendorsPage() {
                   <th className="px-2 py-2 font-medium">Fonts</th>
                   <th className="px-2 py-2 text-right font-medium">Trained on</th>
                   <th className="px-2 py-2 text-right font-medium">False alarms</th>
-                  <th className="px-4 py-2 text-right font-medium">Forgeries caught</th>
+                  <th className="px-2 py-2 text-right font-medium">Forgeries caught</th>
+                  <th className="px-4 py-2 font-medium">Learned from your team</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -74,8 +112,13 @@ export default function VendorsPage() {
                       <td className="px-2 py-1.5 text-slate-600">{f.fonts.replace(/\+/g, ", ")}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{f.trained_on} invoices</td>
                       <td className={cx("px-2 py-1.5 text-right tabular-nums", f.false_alarms ? "text-rose-700" : "text-emerald-700")}>{f.false_alarms} of {f.holdout_genuine}</td>
-                      <td className="px-4 py-1.5 text-right tabular-nums" title={Object.entries(f.forgeries).map(([k, x]) => `${k}: ${x.caught}/${x.of}`).join("\n")}>
+                      <td className="px-2 py-1.5 text-right tabular-nums" title={Object.entries(f.forgeries).map(([k, x]) => `${k}: ${x.caught}/${x.of}`).join("\n")}>
                         {f.caught} of {f.forged_total}
+                      </td>
+                      <td className="px-4 py-1.5 text-slate-600">
+                        {f.learned_layouts?.length
+                          ? f.learned_layouts.map((l) => `${l.label}, confirmed by ${[...new Set(l.confirmed.map((c) => c.by))].join(", ")} (${l.confirmed.map((c) => c.invoice).join(", ")})`).join("; ")
+                          : <span className="text-slate-400">nothing yet</span>}
                       </td>
                     </tr>
                   );
@@ -83,6 +126,7 @@ export default function VendorsPage() {
               </tbody>
             </table>
           </div>
+          <BillingSwitch />
         </Card>
       )}
       <div className="grid gap-4 lg:grid-cols-2">

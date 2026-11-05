@@ -101,6 +101,10 @@ STYLES: dict[str, HouseStyle] = {
                         footer="Lumen Office Supply. Thank you for shopping local.", creator="Xero", producer="Xero Invoicing PDF"),
     "polaris": HouseStyle(band=85, name_size=20, title_size=26, meta_x=158, bill_y=124, table_top=228, row_h=20, mark="square",
                           creator="NetSuite", producer="NetSuite Advanced PDF/HTML Templates"),
+    # Polaris's new billing system, for the demo of the model learning a confirmed layout.
+    "polaris-zuora": HouseStyle(font="Times-Roman", bold="Times-Bold", band=0, name_size=19, title_size=22, meta_x=175, bill_y=118, table_top=238,
+                                row_h=23, footer_y=44, footer="Polaris Network Services. Billing by Zuora.", creator="Zuora Billing",
+                                producer="Zuora Invoice Renderer 7"),
     # What a fraudster rebuilding a vendor's invoice in a word processor produces.
     "forger": HouseStyle(creator="Microsoft Word for Microsoft 365", producer="Microsoft: Print To PDF"),
 }

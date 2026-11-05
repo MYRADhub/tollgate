@@ -1001,6 +1001,12 @@ def demo_file(index: int):
 def demo_reset(request: Request):
     if not settings.demo_mode:
         raise HTTPException(403)
+    last = _last_reset()
+    if last and settings.reset_cooldown_s:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+        if 0 <= age < settings.reset_cooldown_s:
+            wait = int((settings.reset_cooldown_s - age) // 60) + 1
+            raise HTTPException(429, f"Someone reset the shared demo {int(age // 60)} min ago, so it is already fresh. Resets are allowed again in {wait} min.")
     if not limiter.take([(f"reset:{client_ip(request)}", settings.resets_per_ip_per_hour)]):
         raise HTTPException(429, "Too many resets from this visitor; try again later.")
     from .seed import reset_and_seed
@@ -1009,6 +1015,25 @@ def demo_reset(request: Request):
         reset_and_seed(s)
     clock.forget()
     return {"ok": True}
+
+
+@app.post("/api/demo/billing-switch/{step}")
+def demo_billing_switch(step: int, request: Request):
+    """Polaris moves to a new billing system and emails its next invoice (step 1),
+    then another (step 2): the fingerprint flags the first; once a controller
+    confirms it, the model learns the layout and the second passes."""
+    if step not in (1, 2):
+        raise HTTPException(404)
+    _rate_limit(request)
+    from .seed import billing_switch
+
+    name, pdf = billing_switch(step)
+    with session_scope() as s:
+        number = name.split("-", 1)[1].removesuffix(".pdf")
+        if s.execute(select(Invoice.id).where(Invoice.number == number, Invoice.status.not_in([InvoiceStatus.rejected, InvoiceStatus.superseded]))).first():
+            raise HTTPException(409, f"{number} has already arrived")
+        inv = pipeline.ingest(s, pdf, name, source="email", source_ref=f"Polaris Network Services: Invoice {number}")
+        return {"id": inv.id, "number": number}
 
 
 class ClockBody(BaseModel):

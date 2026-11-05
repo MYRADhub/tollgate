@@ -77,7 +77,10 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     # Rate limits count documents sent into the pipeline (the demo inbox is ten).
     intake_per_ip_per_hour: int = 40
-    intake_global_per_hour: int = 300
+    intake_global_per_hour: int = 1200
+    # A reset wipes the demo for every visitor, so one is allowed only this long
+    # after the previous one: a judge mid-demo is not reset by the next.
+    reset_cooldown_s: int = 600
     resets_per_ip_per_hour: int = 12
     # Arbitrary uploads stop this close to the inference cap, so the guided demo
     # keeps real model output for the last few dollars.

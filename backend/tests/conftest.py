@@ -7,6 +7,7 @@ os.environ["TOLLGATE_LOCAL_STORAGE_DIR"] = f"{_tmp}/storage"
 os.environ["TOLLGATE_INFERENCE_API_KEY"] = ""
 os.environ["TOLLGATE_MAIL_ENABLED"] = "false"
 os.environ["TOLLGATE_GMAIL_ADDRESS"] = ""
+os.environ["TOLLGATE_RESET_COOLDOWN_S"] = "0"
 
 import pytest  # noqa: E402
 

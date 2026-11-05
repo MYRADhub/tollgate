@@ -270,7 +270,7 @@ export type InvoiceDetail = InvoiceRow & {
     notes?: string | null;
     vendor_email_on_document?: string | null;
     vendor_tax_id?: string | null;
-    fingerprint?: { score: number; threshold: number; anomalous: boolean; reasons: string[] } | null;
+    fingerprint?: { score: number; threshold: number; anomalous: boolean; reasons: string[]; learned?: { label: string; confirmed: { by: string; invoice: string }[] } | null } | null;
   };
   agent_state: { waiting_for?: string; hold_reason?: string; decisions?: number; recommendation?: string };
   questions: ColleagueQuestion[];

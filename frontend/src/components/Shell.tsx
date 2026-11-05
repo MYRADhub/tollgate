@@ -6,6 +6,7 @@ import { ReactNode, useContext, useEffect, useState } from "react";
 import { Activity, BookCheck, Building2, Clock, FastForward, ScrollText, FlaskConical, Gauge, Inbox, Landmark, MailQuestion, Network, Scale, ShieldCheck, Users } from "lucide-react";
 import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, ago, api, clockLabel, setClockOffset, useData, useLiveFeed, useStoredActor } from "@/lib/api";
 import { FeedbackProvider, useFeedback } from "./Feedback";
+import { StoryProvider } from "./StoryMode";
 import { Logo } from "./Logo";
 import { cx } from "./ui";
 
@@ -194,6 +195,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <LiveContext.Provider value={live}>
       <ActorContext.Provider value={{ actor, setActor }}>
         <FeedbackProvider>
+        <StoryProvider>
         <div className="flex min-h-screen bg-slate-50">
           <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col gap-5 bg-slate-950 px-3 py-4 md:flex">
             <Link href="/" className="flex items-center gap-2 px-1.5 text-white">
@@ -222,6 +224,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 md:px-6">{children}</main>
           </div>
         </div>
+        </StoryProvider>
         </FeedbackProvider>
       </ActorContext.Provider>
     </LiveContext.Provider>

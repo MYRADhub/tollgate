@@ -71,7 +71,7 @@ export function Briefing() {
   const exc = b.exceptions;
   const needsJudgment = b.needs_you.filter((n) => n.exceptions.length > 0).length;
   return (
-    <section className="space-y-3" data-testid="briefing">
+    <section id="briefing" className="space-y-3 rounded-xl" data-testid="briefing">
       <Card
         title={
           <span className="flex items-center gap-2">

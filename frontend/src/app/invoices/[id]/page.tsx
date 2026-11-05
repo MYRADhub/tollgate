@@ -96,6 +96,12 @@ function Findings({ inv, reload }: { inv: InvoiceDetail; reload: () => void }) {
                 {f.resolved && (
                   <div className="mt-1 text-xs text-emerald-700">
                     Cleared by {f.resolved_by}: {f.resolution}
+                    {f.code === "DOC_FINGERPRINT" && <> The vendor&apos;s fingerprint model learned this layout.</>}
+                  </div>
+                )}
+                {!f.resolved && f.code === "DOC_FINGERPRINT" && (
+                  <div className="mt-1 text-[11.5px] text-slate-500">
+                    If the vendor confirms on the phone number on file that they issued it (a new billing system, say), a controller can clear this: the vendor&apos;s model then learns the layout.
                   </div>
                 )}
                 {!f.resolved && f.code !== "BANK_MISMATCH" && (
@@ -448,6 +454,10 @@ function FingerprintCard({ inv }: { inv: InvoiceDetail }) {
             ))}
           </ul>
         </div>
+      ) : f.learned ? (
+        <div className="flex items-start gap-2 text-[13px] text-emerald-700">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {f.reasons[0]}
+        </div>
       ) : (
         <div className="flex items-center gap-2 text-[13px] text-emerald-700">
           <CheckCircle2 className="h-4 w-4" /> Produced the way {name}&apos;s past invoices were: same software, fonts and layout.
@@ -587,14 +597,18 @@ export default function InvoicePage() {
           {actionable && <Actions inv={inv} reload={reload} />}
           <Findings inv={inv} reload={reload} />
           <ThreeWay inv={inv} />
-          <Colleagues inv={inv} />
+          <div id="colleagues" className="rounded-xl">
+            <Colleagues inv={inv} />
+          </div>
           <CriticCard reviews={inv.critic} />
           {!actionable && <Actions inv={inv} reload={reload} />}
           <Emails inv={inv} />
         </div>
         <div className="space-y-4">
           <DocumentPanel inv={inv} />
-          <FingerprintCard inv={inv} />
+          <div id="fingerprint" className="rounded-xl">
+            <FingerprintCard inv={inv} />
+          </div>
           {inv.vendor && (
             <Card title="Vendor master record">
               <Row k="Contact on file" v={inv.vendor.email} />

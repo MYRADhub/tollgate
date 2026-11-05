@@ -133,6 +133,26 @@ def record_receipt(s: Session, invoice_id: str, *, user: str) -> GoodsReceipt:
     return gr
 
 
+def learn_fingerprint(s: Session, invoice_id: str, *, user: str) -> None:
+    """A person confirmed the document is genuine: the vendor's model learns its layout."""
+    from . import fingerprint
+    from .models import VendorFingerprint
+
+    inv = s.get(Invoice, invoice_id)
+    if inv is None or inv.source == "lab" or not inv.vendor_id:
+        return  # attack-lab experiments never teach the real models
+    fp = s.get(VendorFingerprint, inv.vendor_id)
+    doc = (inv.extraction or {}).get("fingerprint_features")
+    if fp is None or not doc:
+        return
+    fp.model = fingerprint.learn(fp.model, doc, by=user, invoice=inv.number or inv.id, at=utcnow().isoformat())
+    modes = fp.model.get("modes", [])
+    fp.metrics = {**fp.metrics, "confirmed": len(fp.model["confirmed"]), "learned_layouts": [{"label": m["label"], "confirmed": m["confirmed"]} for m in modes]}
+    audit.record(s, actor="agent", kind="fingerprint_learned", invoice_id=inv.id,
+                 summary=f"{inv.vendor.name}'s fingerprint model learned a second layout ({doc.get('producer')}) from {inv.number}, confirmed genuine by {user}. "
+                         "Its next invoices in this layout will pass; anything else is still checked against the usual one.")
+
+
 def reject_invoice(s: Session, invoice_id: str, *, user: str, reason: str) -> Invoice:
     inv = s.get(Invoice, invoice_id)
     if inv is None:
@@ -155,7 +175,10 @@ def resolve_finding(s: Session, finding_id: int, *, user: str, role: str, justif
         raise ActionError("finding not found")
     if f.code in ("BANK_MISMATCH",):
         raise ActionError("bank mismatches are cleared only through the bank change process")
-    if f.code == "PROMPT_INJECTION" and Role(role) == Role.clerk:
-        raise ActionError("a controller must clear a quarantined document")
+    if f.code in ("PROMPT_INJECTION", "DOC_FINGERPRINT") and Role(role) == Role.clerk:
+        raise ActionError("a controller must clear a quarantined document" if f.code == "PROMPT_INJECTION"
+                          else "a controller must confirm a document the vendor's fingerprint model rejected")
     human_resolve(s, finding_id, f"{user} ({role})", justification)
+    if f.code == "DOC_FINGERPRINT":
+        learn_fingerprint(s, f.invoice_id, user=user)
     enqueue(s, "decide", f.invoice_id, {"trigger": f"{user} cleared {f.code}"})

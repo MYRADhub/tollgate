@@ -107,9 +107,11 @@ class Verdict:
     threshold: float
     anomalous: bool
     reasons: list[str]
+    learned: dict | None = None  # the confirmed layout it matched, if not the vendor's usual one
 
     def as_dict(self) -> dict:
-        return {"score": round(self.score, 2), "threshold": round(self.threshold, 2), "anomalous": self.anomalous, "reasons": self.reasons}
+        return {"score": round(self.score, 2), "threshold": round(self.threshold, 2), "anomalous": self.anomalous, "reasons": self.reasons,
+                "learned": self.learned}
 
 
 def _kind(key: str) -> str:
@@ -193,7 +195,38 @@ def score(model: dict, doc: dict, vendor: str = "this vendor") -> Verdict:
         reasons.append((pts, f"{_cap(_describe(k))}: {shown(v)}, but on {vendor}'s invoices it is {shown(st['median'])}"))
     reasons.sort(key=lambda r: -r[0])  # stable: metadata and fonts (listed first) lead a tie
     thr = float(model.get("threshold", 6.0))
-    return Verdict(total, thr, total >= thr, [r for _, r in reasons[:5]])
+    verdict = Verdict(total, thr, total >= thr, [r for _, r in reasons[:5]])
+    if verdict.anomalous:
+        for mode in model.get("modes", []):
+            alt = score(mode, doc, vendor)
+            if not alt.anomalous:
+                who = ", ".join(sorted({c["by"] for c in mode["confirmed"]}))
+                return Verdict(alt.score, alt.threshold, False,
+                               [f"Matches a second layout {vendor} uses ({mode['label']}), learned from {len(mode['confirmed'])} invoice(s) confirmed genuine by {who}"],
+                               {"label": mode["label"], "confirmed": mode["confirmed"]})
+    return verdict
+
+
+def _mode_key(doc: dict) -> str:
+    return f"{doc.get('producer')}|{doc.get('creator')}|{doc.get('fonts')}"
+
+
+def learn(model: dict, doc: dict, *, by: str, invoice: str, at: str) -> dict:
+    """A person confirmed this flagged invoice is genuine (the vendor changed billing
+    systems, say). Keep the vendor's usual model as it is and learn the new layout
+    as a second one, from the confirmed invoices that share its software and fonts.
+    One confirmation teaches the layout exactly; later invoices in it then pass."""
+    confirmed = list(model.get("confirmed", [])) + [{"features": doc, "by": by, "invoice": invoice, "at": at}]
+    groups: dict[str, list[dict]] = {}
+    for c in confirmed:
+        groups.setdefault(_mode_key(c["features"]), []).append(c)
+    modes = []
+    for cs in groups.values():
+        m = _fit_core([c["features"] for c in cs])
+        m["label"] = str(cs[0]["features"].get("producer"))
+        m["confirmed"] = [{"by": c["by"], "invoice": c["invoice"], "at": c["at"]} for c in cs]
+        modes.append(m)
+    return {**model, "confirmed": confirmed, "modes": modes}
 
 
 # ---------------------------------------------------------------------------- training data
@@ -234,7 +267,7 @@ def forgeries(slug: str, n: int = 4) -> list[tuple[str, bytes]]:
     from .invoicegen import STYLES, HouseStyle, render
 
     specs = history_specs(slug, n, seed=99)
-    others = [k for k in STYLES if k not in (slug, "forger") and not k.startswith("careful-")]
+    others = [k for k in STYLES if k not in (slug, "forger", "polaris-zuora") and not k.startswith("careful-")]
     own = STYLES[slug]
     # A careful forger copies the fonts, page size and even the metadata; only the layout is theirs.
     STYLES[f"careful-{slug}"] = HouseStyle(font=own.font, bold=own.bold, pagesize=own.pagesize, creator=own.creator, producer=own.producer,

@@ -96,8 +96,8 @@ POS = [
      [("CHAIR-ERG", "Ergonomic task chair, mesh back", 6, "189.00")],
      {"CHAIR-ERG": 6}),
     ("PO-24108", "polaris", "IT", "Elena Sorensen", "elena", date(2026, 7, 1),
-     [("MPLS-1G-SLC", "Managed MPLS 1 Gbps, Salt Lake City plant, monthly", 12, "6500.00")],
-     {"MPLS-1G-SLC": 12}),
+     [("MPLS-1G-SLC", "Managed MPLS 1 Gbps, Salt Lake City plant, monthly", 12, "6500.00"), ("MPLS-BURST", "Burst bandwidth, per 100 Mbps-month", 24, "180.00")],
+     {"MPLS-1G-SLC": 12, "MPLS-BURST": 24}),
 ]
 
 
@@ -178,6 +178,14 @@ def demo_inbox() -> list[DemoInvoice]:
     ]
 
 
+def billing_switch(step: int) -> tuple[str, bytes]:
+    """Polaris moves to a new billing system: their next invoices look nothing like
+    the old ones. Both are genuine."""
+    number, qty, d = {1: ("PNS-56010", 3, TODAY - timedelta(days=1)), 2: ("PNS-56340", 5, TODAY)}[step]
+    spec = spec_for("polaris", number, d, "PO-24108", [("MPLS-BURST", "Burst bandwidth, per 100 Mbps-month", qty, "180.00")], tax_rate=D("0"), style="polaris-zuora")
+    return f"polaris-{number}.pdf", render(spec)
+
+
 def corrected_bis_2077() -> bytes:
     """The vendor's corrected invoice, sent back in reply to the agent."""
     return render(spec_for("brightline", "BIS-2077-C", TODAY, "PO-24107", [("BRG-6204", "Deep groove ball bearing 6204-2RS", 200, "4.10"), ("LUBE-EP2", "EP2 lithium grease, 14 oz", 24, "7.80")]))
@@ -191,6 +199,9 @@ def reset_and_seed(s: Session) -> None:
         if table.name not in keep:
             s.execute(delete(table))
     s.flush()
+    from . import clock
+
+    clock.reset(s)  # timestamps from here on are real time, including the reset's own
 
     verified = datetime(2025, 3, 1, tzinfo=timezone.utc)
     vendors: dict[str, Vendor] = {}

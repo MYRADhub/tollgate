@@ -98,3 +98,48 @@ def test_fingerprint_only_invoice_asks_the_vendor_and_goes_to_a_person(db):
         assert codes == {"DOC_FINGERPRINT"}
         assert inv.status.value == "on_hold" and inv.agent_state["waiting_for"] == "person"
         assert inv.agent_state["recommendation"].startswith("Call Polaris")
+
+
+def _flagged_finding(s, iid):
+    return next((f for f in s.get(Invoice, iid).findings if f.code == "DOC_FINGERPRINT"), None)
+
+
+def test_confirmed_new_layout_is_learned_and_nothing_else_is(db):
+    from tollgate import api_actions
+    from tollgate.seed import billing_switch
+
+    with session_scope() as s:
+        first = pipeline.ingest(s, billing_switch(1)[1], "pns1.pdf").id
+    drain()
+    with session_scope() as s:
+        f = _flagged_finding(s, first)
+        assert f is not None
+        with pytest.raises(api_actions.ActionError, match="controller"):
+            api_actions.resolve_finding(s, f.id, user="Sam Patel", role="clerk", justification="looks fine")
+        api_actions.resolve_finding(s, f.id, user="Rosa Kim", role="controller", justification="Called Polaris on the number on file: they moved to Zuora")
+        fp = s.get(VendorFingerprint, s.get(Invoice, first).vendor_id)
+        assert fp.metrics["confirmed"] == 1 and fp.metrics["learned_layouts"][0]["label"] == "Zuora Invoice Renderer 7"
+    drain()
+    with session_scope() as s:
+        second = pipeline.ingest(s, billing_switch(2)[1], "pns2.pdf").id
+        forged_spec = replace(fingerprint.history_specs("polaris", 1, seed=21)[0], style="forger", number="PNS-77001", po_number="PO-24108")
+        forged = pipeline.ingest(s, render(forged_spec), "pns-forged.pdf").id
+    drain()
+    with session_scope() as s:
+        assert _flagged_finding(s, second) is None
+        v = s.get(Invoice, second).extraction["fingerprint"]
+        assert v["learned"]["confirmed"][0]["by"] == "Rosa Kim"
+        assert _flagged_finding(s, forged) is not None  # learning one layout does not open the door to others
+
+
+def test_lab_confirmations_never_teach_the_real_model(db):
+    from tollgate import api_actions
+
+    with session_scope() as s:
+        iid = [pipeline.ingest(s, pdf, name, source="lab").id for name, pdf, _ in build("pdf_edit")][0]
+    drain()
+    with session_scope() as s:
+        f = _flagged_finding(s, iid)
+        api_actions.resolve_finding(s, f.id, user="Rosa Kim", role="controller", justification="test")
+        fp = s.get(VendorFingerprint, s.get(Invoice, iid).vendor_id)
+        assert "confirmed" not in fp.metrics

@@ -212,6 +212,28 @@ test.describe.serial("guided demo, end to end", () => {
     await expect(spoof.getByText("Impersonation attempt")).toBeVisible();
   });
 
+  test("the fingerprint learns a vendor's new billing system once a controller confirms it", async ({ page, request }) => {
+    await page.goto("/vendors");
+    await page.getByRole("button", { name: "1. Polaris sends its first Zuora invoice" }).click();
+    await page.getByRole("link", { name: /open it, then clear the finding/ }).click();
+    await settle(request);
+    await page.reload();
+    await expect(page.getByText("Not made the way Polaris Network Services's invoices are made").first()).toBeVisible();
+    await actAs(page, "Rosa Kim");
+    const finding = page.locator("li", { hasText: "Not made the way Polaris" }).first();
+    await finding.getByRole("button", { name: "Override with a justification" }).click();
+    await finding.getByPlaceholder("Why is this OK to clear?").fill("Called Polaris on the number on file: they moved to Zuora");
+    await finding.getByRole("button", { name: /^Clear as/ }).click();
+    await expect(page.getByText(/learned this layout/).first()).toBeVisible();
+    await page.goto("/vendors");
+    await expect(page.getByText(/Zuora Invoice Renderer 7, confirmed by Rosa Kim/).first()).toBeVisible();
+    await page.getByRole("button", { name: "2. Polaris sends the next one" }).click();
+    await page.getByRole("link", { name: "open it" }).click();
+    await settle(request);
+    await page.reload();
+    await expect(page.getByText(/Matches a second layout Polaris Network Services uses/).first()).toBeVisible();
+  });
+
   test("the audit chain verifies and the guided demo is complete", async ({ page, request }) => {
     // "seen" steps live in this browser's storage; each test starts with a fresh one
     for (const n of ["PNS-55120", "BIS-2090", "GE-5570"]) {
@@ -250,6 +272,24 @@ test.describe.serial("guided demo, end to end", () => {
     await settle(request);
     await page.reload();
     await expect(page.getByRole("link", { name: /Lumen Office Supply/ }).first()).toBeVisible();
+  });
+});
+
+test.describe("show me", () => {
+  test("plays the whole story by itself from an empty demo", async ({ page, request }) => {
+    test.setTimeout(300_000);
+    await request.post(`${API}/api/demo/reset`);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Show me in 2 minutes" }).click();
+    const story = page.getByTestId("story");
+    await expect(story.getByText("Twelve invoices arrive in the AP inbox")).toBeVisible();
+    await expect(story.getByText("Cleared without anyone in AP")).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByText("The agent asked colleagues").first()).toBeVisible();
+    await expect(story.getByText("The delivery arrived; it paid")).toBeVisible({ timeout: 120_000 });
+    await expect(story.getByText("A forgery, caught four ways")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("Not made the way Brightline Industrial Supply's invoices are made").first()).toBeVisible();
+    await expect(story.getByText("What is left for people")).toBeVisible({ timeout: 60_000 });
+    await expect(story.getByText("That is Tollgate")).toBeVisible({ timeout: 60_000 });
   });
 });
 

@@ -10,7 +10,7 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 - Video: _link_
 - Slides: _link_
 
-**Judging in five minutes:** open the live demo and follow the guided demo on the dashboard (nine steps). Load the inbox and watch the "While you were away" briefing fill in: within a minute the agent has found the PO an invoice forgot to quote, had its owner confirm it, and paid it; press **Fast-forward a day** (top right) and a backordered delivery arrives and another invoice pays. What is left for people are the decisions that need judgment, each with the agent's recommendation. The thread to watch is BIS-2090, a forged invoice caught four independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, a PDF that Brightline's billing system did not produce (Tollgate's own fingerprint model), and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset.
+**Judging in two minutes:** open the live demo and press **Show me in 2 minutes**: it plays the story by itself with captions. **In five minutes:** follow the guided demo on the dashboard (nine steps). Load the inbox and watch the "While you were away" briefing fill in: within a minute the agent has found the PO an invoice forgot to quote, had its owner confirm it, and paid it; press **Fast-forward a day** (top right) and a backordered delivery arrives and another invoice pays. What is left for people are the decisions that need judgment, each with the agent's recommendation. The thread to watch is BIS-2090, a forged invoice caught four independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, a PDF that Brightline's billing system did not produce (Tollgate's own fingerprint model), and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset, and a reset is refused within ten minutes of the last one so one judge cannot wipe another's demo.
 
 | | |
 |---|---|
@@ -19,7 +19,7 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 | Evals on the real models | 133/133, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
 | Exceptions cleared with no one in AP touching them | On the real models, after one simulated day: all 3 that someone inside the company could settle (missing PO, unordered fee, backorder); 2 still waiting on vendors; the 3 that need judgment (bank change, forged invoice, unknown vendor) handed over with a recommendation |
 | Our own model | Per-vendor document fingerprint: 0 false alarms on 70 held-out genuine invoices, 112 of 112 forgeries caught, including ones that copy the vendor's fonts and metadata (on generated invoice archives) |
-| Tests | 159 backend tests, 18 browser tests |
+| Tests | 162 backend tests, 20 browser tests (also run against the live deployment) |
 
 ---
 
@@ -103,6 +103,8 @@ Every vendor's billing system (Sage Intacct, SAP, QuickBooks, Xero...) produces 
 | Careful rebuild that copies the vendor's fonts, page size and PDF metadata | 28 of 28 caught, on layout alone |
 | Made from another company's template | 28 of 28 caught |
 | A genuine invoice edited in a PDF editor | 28 of 28 caught |
+
+**It learns from your team.** Vendors do change billing systems. When a controller confirms a flagged invoice is genuine (after calling the vendor on the number on file), the vendor's model keeps its usual layout and learns the new one as a second, from the confirmed invoices that share its software and fonts. The vendor's next invoice in that layout passes, and the finding says whose confirmation taught it; every other layout is still checked against the usual one. Only a controller can confirm, and attack-lab invoices never teach the real models. On the Vendors page, **Try it** sends Polaris's first invoice from its new Zuora system, then the next one.
 
 This catches what field checks cannot: in the attack lab, a real Lumen invoice is edited to raise the toner price from $89.00 to $90.50, inside the 2% price tolerance, with the totals fixed to match. Every control passes; the fingerprint holds it. The honest caveat: in the demo each vendor's archive is generated, so the genuine invoices are cleaner than a real archive would be. In production the model trains on the customer's own invoice history, and a forger who reproduced a vendor's layout to within a point or two would not be caught by it (the other controls still apply).
 
@@ -223,8 +225,8 @@ npm run dev -- --port 3100                   # proxies /api to http://127.0.0.1:
 
 Tests, from the repo root:
 
-- `npm test`: 159 backend unit and integration tests, then the frontend type check and lint.
-- `npm run test:e2e`: 18 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, the exception agent and briefing, fast-forward, the fingerprint, contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
+- `npm test`: 162 backend unit and integration tests, then the frontend type check and lint.
+- `npm run test:e2e`: 20 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, the exception agent and briefing, fast-forward, the fingerprint and what it learns from a controller, the self-playing "Show me", contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
 
 ## Deploying on Vultr
 

@@ -6,6 +6,7 @@ import { Bot, Cpu, FileUp, HandCoins, Mail, RotateCcw, Scale, ShieldAlert, User 
 import { AuditEvent, InvoiceRow, Stats, ago, api, compactMoney, microMoney, money, useData, useLive } from "@/lib/api";
 import { useFeedback } from "@/components/Feedback";
 import { Briefing } from "@/components/Briefing";
+import { ShowMeButton } from "@/components/StoryMode";
 import { Tour } from "@/components/Tour";
 import { AGENT_WORKING, Button, Card, Empty, Flag, Stat, StatusPill, cx } from "@/components/ui";
 
@@ -156,7 +157,12 @@ export default function InvoicesPage() {
       danger: true,
     });
     if (!ok) return;
-    await api("/api/demo/reset", { method: "POST" });
+    try {
+      await api("/api/demo/reset", { method: "POST" });
+    } catch (e) {
+      fb.toast("info", "Not reset", (e as Error).message);
+      return;
+    }
     try {
       localStorage.removeItem("tollgate.seen");
     } catch {}
@@ -172,7 +178,8 @@ export default function InvoicesPage() {
             Tollgate reads every vendor invoice, checks it against POs, receipts, the vendor master and the vendor&apos;s contract, claims what you are owed, and works each exception until it is safe to pay.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <ShowMeButton />
           <Button variant="ghost" size="sm" onClick={reset}>
             <RotateCcw className="h-3.5 w-3.5" /> Reset demo
           </Button>

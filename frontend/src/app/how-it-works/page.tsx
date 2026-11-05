@@ -65,7 +65,7 @@ export default function HowItWorks() {
           </Step>
           <Down />
           <Step icon={<Fingerprint className="h-4 w-4" />} title="Is this really the vendor's document?" who="Tollgate's own model, trained per vendor">
-            Every vendor&apos;s billing system makes its PDFs the same way: the same software, fonts, label positions and line spacing. Tollgate trains a one-class model per vendor on its past invoices and scores each new PDF against it. An invoice rebuilt in a word processor, made from another company&apos;s template, or edited to change a number does not match, even when every field on it is right; the finding says which features gave it away. Held-out results are on the Vendors page.
+            Every vendor&apos;s billing system makes its PDFs the same way: the same software, fonts, label positions and line spacing. Tollgate trains a one-class model per vendor on its past invoices and scores each new PDF against it. An invoice rebuilt in a word processor, made from another company&apos;s template, or edited to change a number does not match, even when every field on it is right; the finding says which features gave it away. When a controller confirms a flagged invoice is genuine (a vendor that changed billing systems), the model learns that layout as a second one; nothing else gets through on it. Held-out results are on the Vendors page.
           </Step>
           <Down />
           <Step icon={<ShieldCheck className="h-4 w-4" />} title={`3. ${c?.controls.length ?? 24} controls, then the contract`} who="Plain Python, no model">
