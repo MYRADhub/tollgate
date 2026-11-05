@@ -1,8 +1,8 @@
 # Tollgate
 
-**An accounts-payable agent that pays for itself: it recovers what vendors owe you under their contracts, and it is safe to put an AI in front of payments.**
+**An accounts-payable agent that pays for itself: it clears its own exceptions by asking the people who know, recovers what vendors owe you under their contracts, and is safe to put an AI in front of payments.**
 
-Tollgate reads vendor invoices as they arrive in the AP inbox and decides, invoice by invoice, what the company actually owes. It checks every invoice against purchase orders, goods receipts and the vendor master; reads each vendor's contract to find the money owed back (service credits, volume prices, price caps) and deducts it with the clause quoted; works exceptions on its own by emailing vendors and budget owners; has an independent second model check every payment that involves a judgment; and plans when to pay so early-payment discounts are captured without breaking the cash floor. People see only what needs judgment.
+Tollgate reads vendor invoices as they arrive in the AP inbox and decides, invoice by invoice, what the company actually owes. It checks every invoice against purchase orders, goods receipts and the vendor master; reads each vendor's contract to find the money owed back (service credits, volume prices, price caps) and deducts it with the clause quoted; works exceptions to resolution on its own: it looks things up, asks the budget owner, waits for the answer or the delivery, and acts; checks that each PDF was really produced by the vendor's billing system with a fingerprint model it trains per vendor; has an independent second model check every payment that involves a judgment; and plans when to pay so early-payment discounts are captured without breaking the cash floor. People see only what needs judgment.
 
 Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering the Future of Work: finance and procurement). Everything runs on Vultr.
 
@@ -10,14 +10,16 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 - Video: _link_
 - Slides: _link_
 
-**Judging in five minutes:** open the live demo and follow the guided demo on the dashboard (eight steps). The thread to watch is BIS-2090, a forged invoice caught three independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset.
+**Judging in five minutes:** open the live demo and follow the guided demo on the dashboard (nine steps). Load the inbox and watch the "While you were away" briefing fill in: within a minute the agent has found the PO an invoice forgot to quote, had its owner confirm it, and paid it; press **Fast-forward a day** (top right) and a backordered delivery arrives and another invoice pays. What is left are three decisions, each with the agent's recommendation. The thread to watch is BIS-2090, a forged invoice caught four independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, a PDF that Brightline's billing system did not produce (Tollgate's own fingerprint model), and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset.
 
 | | |
 |---|---|
 | Money recovered in the demo | $2,434.20 under contracts (SLA credit, volume price, price cap) and $476.20 in credit memos from vendor statements |
 | Model cost | about $0.0033 per invoice on Vultr Serverless Inference (best-in-class AP teams: $2.78, Ardent Partners 2025) |
-| Evals on the real models | 117/117, including 27/27 attacks stopped before payment |
-| Tests | 132 backend tests, 16 browser tests (also run against the live deployment) |
+| Evals on the real models | 133/133, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
+| Exceptions cleared with no one in AP touching them | 5 of 6 in the demo after one simulated day (the sixth waits on the vendor); 3 decisions left for people, each with a recommendation |
+| Our own model | Per-vendor document fingerprint: 0 false alarms on 70 held-out genuine invoices, 112 of 112 forgeries caught, including ones that copy the vendor's fonts and metadata (on generated invoice archives) |
+| Tests | 159 backend tests, 18 browser tests |
 
 ---
 
@@ -38,7 +40,11 @@ Paying a vendor invoice looks simple and is not. Before a company pays, someone 
 | Network service after an outage (uptime 99.31% vs 99.95% SLA) | Applies the contract's 15% service credit, pays $975 less, and sends remittance advice quoting the clause |
 | Motors billed at list price, though the contract gives a volume price | Deducts $1,416, has the critic confirm the figure, routes it to the controller |
 | Billed above the PO price | Emails the vendor the exact overcharge; re-reads the corrected invoice when it arrives and pays it |
-| Bills for goods not yet received | Asks the budget owner; pays as soon as receiving logs the goods |
+| Bills for goods not yet received | Asks the budget owner; told they are backordered, waits for the delivery and pays as soon as receiving logs it; escalates if nobody can confirm |
+| Quotes no PO number | Finds the open PO from that vendor that covers its lines, asks the PO's owner to confirm, attaches it on a "yes" and pays |
+| Adds a small charge that was never ordered | Asks the PO's owner; if they agreed to it, adds it to the PO as a change order (up to $500) and pays; otherwise asks the vendor to remove it |
+| Was not produced by the vendor's billing system (rebuilt, or edited) | Holds it, says which features gave it away, asks the vendor to confirm they issued it and hands it to a person |
+| Waits on an approver | Reminds the approver after a day, at most twice |
 | Resubmission of an invoice already paid | Rejects or holds it as a duplicate and tells the vendor why |
 | Asks for payment to a new bank account | Pays only the verified account; opens a review that needs a callback and two approvers |
 | Contains hidden text instructing the AI | Finds text that is in the file but invisible on the page, quarantines it, shows a person what it said |
@@ -53,27 +59,52 @@ Paying a vendor invoice looks simple and is not. Before a company pays, someone 
 flowchart LR
     A[AP inbox<br/>Gmail IMAP / upload] --> B[Read<br/>Vultr vision model]
     B --> C[Distrust<br/>grounding, hidden text,<br/>safety model]
-    C --> D[23 controls<br/>+ approved contract terms]
-    D --> E[Plan<br/>Vultr reasoning model]
+    C --> FP[Fingerprint<br/>our per-vendor model]
+    FP --> D[23 controls<br/>+ approved contract terms]
+    D --> IN[Investigate<br/>read-only tools]
+    IN --> E[Plan<br/>Vultr reasoning model]
     E --> K[Critic<br/>second Vultr model<br/>recomputes the payment]
     K --> F{Policy guard<br/>in code}
     F -- allowed --> G[Act: email, hold, approve,<br/>reject, schedule payment]
     F -- denied --> E
     G --> R[Payment run<br/>discounts vs cash floor]
     G --> H[(Postgres<br/>hash-chained audit)]
-    I[Vendor reply / approval /<br/>goods receipt / timer] --> D
+    I[Vendor reply / colleague's answer /<br/>approval / goods receipt / timer] --> D
 ```
 
 1. **Read.** Pages are rendered and sent to a Vultr vision model, so scanned invoices work.
 2. **Distrust what was read.** Key values are grounded against the PDF text layer. Every text run is compared with the rendered pixels to find text a person cannot see. Instruction-shaped text, Vultr's content-safety model, and the reader's own report of instructions it noticed each quarantine the document.
-3. **Controls, then the contract.** Twenty-three checks in plain Python (vendor master, lookalike names, tax ID, verified bank account, duplicates, split billing, arithmetic, PO, receipts, currency, terms). Then the vendor's approved contract terms are applied by code: service credits against our own uptime monitoring, volume prices, price-increase caps. Each finding carries its evidence and the amount at risk or owed.
-4. **Plan.** A Vultr reasoning model proposes actions for exceptions and drafts the emails. Clean invoices take a fixed path: there is nothing to judge.
-5. **Critic.** Before any payment with deductions or above the auto-pay limit, a different model recomputes what should be paid from the invoice, PO, receipts, contract text and measurements. If its own figure differs from the proposal it cannot agree. Disagreement sends the payment to the CFO; concerns, to the controller.
-6. **Policy guard.** Code executes each action or refuses it: no payment while a blocking finding is open, only to the vendor-master account, only with the approvals the amount (or the critic) requires; emails only to the contact on file; blocking findings clear only on new evidence or a person; a rejection is final. Refusals are logged and the model re-plans.
-7. **People.** Approvals, bank-change callbacks with two approvers, contract terms the model proposed, overrides with a justification.
-8. **Payment run.** Pays what is due within the week, then spends cash above the floor on early-payment discounts by annualised return; the controller approves the run and downloads the bank batch file.
+3. **Is it really the vendor's document?** Tollgate's own model (below) compares how the PDF was made with how this vendor's invoices are always made.
+4. **Controls, then the contract.** Twenty-three checks in plain Python (vendor master, lookalike names, tax ID, verified bank account, duplicates, split billing, arithmetic, PO, receipts, currency, terms). Then the vendor's approved contract terms are applied by code: service credits against our own uptime monitoring, volume prices, price-increase caps. Each finding carries its evidence and the amount at risk or owed.
+5. **Investigate, then plan.** For an exception, the reasoning model first calls read-only tools one at a time (the vendor's open POs; ordered, received and billed quantities; earlier answers; vendor history), then proposes actions and drafts the messages. Clean invoices take a fixed path: there is nothing to judge.
+6. **Critic.** Before any payment with deductions or above the auto-pay limit, a different model recomputes what should be paid from the invoice, PO, receipts, contract text and measurements. If its own figure differs from the proposal it cannot agree. Disagreement sends the payment to the CFO; concerns, to the controller.
+7. **Policy guard.** Code executes each action or refuses it: no payment while a blocking finding is open, only to the vendor-master account, only with the approvals the amount (or the critic) requires; emails only to the contact on file; blocking findings clear only on new evidence or a person; a rejection is final. Refusals are logged and the model re-plans.
+8. **People.** Approvals, bank-change callbacks with two approvers, contract terms the model proposed, overrides with a justification.
+9. **Payment run.** Pays what is due within the week, then spends cash above the floor on early-payment discounts by annualised return; the controller approves the run and downloads the bank batch file.
 
 The agent runs in a background worker. It follows up when vendors go quiet, reacts to replies in the AP mailbox, re-reads corrected invoices, and resumes when goods arrive, with nobody logged in. Every read, check, plan, critic review, refusal, email and decision is written to an append-only audit log in which each entry's SHA-256 covers the previous one.
+
+### Exceptions: it asks, waits and acts
+
+About one invoice in five needs someone to chase something. Most of that chasing is asking a person inside the company a narrow question, so the agent does it. It asks the PO's budget owner a structured question (does this invoice belong to your PO? did the goods arrive? did you agree to this charge?), waits, and acts on the structured answer. Code decides what an answer allows: a PO is attached only on a "yes" from that PO's owner, a change order only on the owner's agreement and only up to $500, and an exception nobody can settle after two tries goes to a person with the agent's recommendation. In the demo the colleagues are simulated and never emailed; vendors are real email.
+
+The **briefing** on the dashboard counts what happened: invoices settled with no one in AP touching them, exceptions cleared by the agent, the work it did (lookups, questions, vendor emails, reminders), human touches, and the decisions left, each with a recommendation and, for payment approvals, a one-click approve. The time-saved figure is an estimate and says so: 15 minutes of AP time per exception, the low end of commonly cited ranges.
+
+The demo company's clock can be moved forward a day at a time (**Fast-forward**, top right). Follow-ups, colleagues' answers, deliveries and approval reminders that were due happen at once; the API and the worker share the clock.
+
+### Vendor document fingerprint: our own model
+
+Every vendor's billing system (Sage Intacct, SAP, QuickBooks, Xero...) produces its PDFs the same way. Tollgate trains one model per vendor on that vendor's past invoices and learns its signature: the producing software, the fonts, where the title and labels sit, the size of the company name, the line spacing, whether anything is drawn after the footer. It is one-class (it only ever sees genuine invoices): frequency tables for the categorical features, a median and robust spread (MAD) for each numeric one, and a threshold set from leave-one-out scores on the vendor's own invoices. Every flag lists, in plain words, the features that gave the document away.
+
+| Held out, per vendor (7 vendors) | Result |
+|---|---|
+| Genuine invoices the model never saw | 0 false alarms in 70 |
+| Rebuilt in a word processor | 28 of 28 caught |
+| Careful rebuild that copies the vendor's fonts, page size and PDF metadata | 28 of 28 caught, on layout alone |
+| Made from another company's template | 28 of 28 caught |
+| A genuine invoice edited in a PDF editor | 28 of 28 caught |
+
+This catches what field checks cannot: in the attack lab, a real Lumen invoice is edited to raise the toner price from $89.00 to $90.50, inside the 2% price tolerance, with the totals fixed to match. Every control passes; the fingerprint holds it. The honest caveat: in the demo each vendor's archive is generated, so the genuine invoices are cleaner than a real archive would be. In production the model trains on the customer's own invoice history, and a forger who reproduced a vendor's layout to within a point or two would not be caught by it (the other controls still apply).
 
 ### Contracts: hybrid by design
 
@@ -81,7 +112,7 @@ A model reads each contract once and proposes machine-checkable terms (`sla_cred
 
 ### The attack lab
 
-The **Attack lab** page lets anyone try to get Tollgate to pay something it should not: nine attack templates (hidden instructions, visible instructions, bank redirection, lookalike vendor, disguised duplicate, split invoices, inflated quantity, padded fee, inflated total), editable wording, or your own PDF. Lab invoices run through exactly the same pipeline but never send email, never join a payment run and never count on the dashboard; one that gets scheduled is shown as a miss.
+The **Attack lab** page lets anyone try to get Tollgate to pay something it should not: ten attack templates (hidden instructions, visible instructions, bank redirection, lookalike vendor, disguised duplicate, split invoices, inflated quantity, padded fee, a real invoice quietly edited, inflated total), editable wording, or your own PDF. Lab invoices run through exactly the same pipeline but never send email, never join a payment run and never count on the dashboard; one that gets scheduled is shown as a miss.
 
 ### Vendor questions
 
@@ -112,17 +143,18 @@ Every model call made while working an invoice is charged to it. On the real mod
 
 ## Evaluation on the real models
 
-`uv run python -m tollgate.evals --runs 3` runs six suites on fresh databases against Vultr Serverless Inference. Latest results (`backend/tollgate/eval_results.json`, also shown in the attack lab):
+`uv run python -m tollgate.evals --runs 3` runs seven suites on fresh databases against Vultr Serverless Inference. Latest results (`backend/tollgate/eval_results.json`, also shown in the attack lab):
 
 | Suite | Passed |
 |---|---|
-| Attacks stopped before payment (9 techniques) | 27/27 |
-| Demo inbox reaches its expected outcome and recovery amounts (10 invoices) | 30/30 |
+| Attacks stopped before payment (10 techniques) | 30/30 |
+| Demo inbox reaches its expected outcome and recovery amounts after a simulated day: colleagues answer, the backorder arrives (12 invoices) | 36/36 |
 | Contract terms extracted exactly, with verbatim quotes (6 contracts) | 18/18 |
 | Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 18/18 |
 | Vendor questions: correct answer, nothing disclosed to the wrong sender, bank details unchanged (6 cases) | 18/18 |
 | Vendor statements: every line read exactly, reconciliation fully explained (2 statements) | 6/6 |
-| **Total** | **117/117** |
+| Document fingerprint, our own model: no false alarm on 10 held-out genuine invoices and all 16 forgeries caught (7 vendors, deterministic) | 7/7 |
+| **Total** | **133/133** |
 
 Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 132 unit and integration tests and 16 browser tests (see Running locally).
 
@@ -147,6 +179,9 @@ Model choices were measured, not assumed: with thinking on, GLM-5.3 spent its wh
 | `backend/tollgate/paymentrun.py` | Payment-run optimiser and bank batch file |
 | `backend/tollgate/pdfdoc.py`, `extraction.py`, `injection.py` | Reading, grounding, hidden-text detection, injection screening |
 | `backend/tollgate/agent.py` | Planner, rule-based fallback, policy guard, remittance advice |
+| `backend/tollgate/resolver.py`, `colleagues.py` | Investigation tools and loop; budget owners and approvers the agent asks and reminds |
+| `backend/tollgate/fingerprint.py` | Tollgate's own per-vendor document model: features, training, scoring, forgeries for testing |
+| `backend/tollgate/briefing.py`, `clock.py` | The dashboard briefing and its metrics; the demo company's clock |
 | `backend/tollgate/pipeline.py`, `worker.py`, `mailer.py` | Ingest, controls, job worker, Gmail SMTP/IMAP threading |
 | `backend/tollgate/lab.py`, `evals.py` | Attack lab templates and the evaluation suite |
 | `backend/tollgate/audit.py` | Hash-chained audit log and verification |
@@ -155,19 +190,20 @@ Model choices were measured, not assumed: with thinking on, GLM-5.3 spent its wh
 
 ## Try the demo
 
-1. **Invoices → Demo inbox → Send all.** Ten invoices from seven vendors arrive. Watch the agent activity feed.
-2. Open **Polaris PNS-55120**: October uptime was 99.31% against a 99.95% SLA; the contract clause is quoted, $975 is deducted, remittance advice goes to the vendor.
-3. Open **Ostara OC-7720**: the PO used list price; the contract gives $1,121 a motor for 20+. The critic's independent figure matches the $31,944 proposal. Approve it as **Rosa Kim (Controller)**.
-4. Open **Brightline BIS-2090**: the hidden instruction lifted out of the PDF; the document tab shows it is invisible.
-5. Open **Brightline BIS-2077**: the agent asked for a corrected invoice; click **Play the vendor: reply** and watch it get re-read and paid.
-6. Open **Granite GE-5561**, click **Log goods received**: it pays, net of the price-cap deduction.
-7. **Payment runs**: the agent took Lumen's 2% discount (149% a year) and left Brightline's 1% (18% a year) because cash above the floor ran out. Approve the run and download the bank file.
-8. **Contracts**: every term with its clause highlighted in the contract. Paste a new contract and watch the model propose terms for review.
-9. **Statements → Load demo statements**: every cent of each gap explained; BIS-2090 is not on Brightline's statement; claim Kestrel's $320 credit as the controller.
-10. **Vendor questions**: send "Why were we short-paid?" as Polaris, then "Impersonates a vendor" and "Asks to change bank details".
-11. **Attack lab**: launch any attack, or upload your own PDF.
+1. **Guided demo → Load the demo inbox.** Twelve invoices from seven vendors arrive. Watch the briefing: within a minute **GE-5570** (no PO number) is matched to PO-24111 after Marcus confirms it, and **LOS-3420**'s $65 rush fee becomes a change order after Elena agrees.
+2. **Fast-forward a day** (top right): GE-5561's backordered breakers arrive, receiving logs them, and the agent pays it net of the price cap. Approvers get a reminder.
+3. Open **Polaris PNS-55120**: October uptime was 99.31% against a 99.95% SLA; the contract clause is quoted, $975 is deducted, remittance advice goes to the vendor.
+4. Open **Ostara OC-7720**: the PO used list price; the contract gives $1,121 a motor for 20+. The critic's independent figure matches the $31,944 proposal. Approve it as **Rosa Kim (Controller)**.
+5. Open **Brightline BIS-2090**: the hidden instruction lifted out of the PDF; the document tab shows it is invisible; the fingerprint shows it was made in Word, not Brightline's Sage Intacct.
+6. Open **Brightline BIS-2077**: the agent asked for a corrected invoice; click **Play the vendor: reply** and watch it get re-read and paid.
+7. **Vendors & POs**: each vendor's fingerprint model, its billing system, and how it did on held-out invoices and forgeries.
+8. **Payment runs**: the agent took Lumen's 2% discount (149% a year) and left Brightline's 1% (18% a year) because cash above the floor ran out. Approve the run and download the bank file.
+9. **Contracts**: every term with its clause highlighted in the contract. Paste a new contract and watch the model propose terms for review.
+10. **Statements → Load demo statements**: every cent of each gap explained; BIS-2090 is not on Brightline's statement; claim Kestrel's $320 credit as the controller.
+11. **Vendor questions**: send "Why were we short-paid?" as Polaris, then "Impersonates a vendor" and "Asks to change bank details".
+12. **Attack lab**: launch any attack (try "A real invoice, quietly edited"), or upload your own PDF.
     **Live mail:** the AP inbox is a real Gmail plus-address (shown on How it works). Email it an invoice PDF and it goes through the same pipeline; the agent's emails to vendors are real, and a reply with a corrected PDF is read within about 30 seconds. Replies to questions typed on the Vendor questions page are never emailed.
-12. **Audit trail → Verify chain.**
+13. **Audit trail → Verify chain.**
 
 ## Running locally
 
@@ -187,8 +223,8 @@ npm run dev -- --port 3100                   # proxies /api to http://127.0.0.1:
 
 Tests, from the repo root:
 
-- `npm test`: 76 backend unit and integration tests, then the frontend type check and lint.
-- `npm run test:e2e`: 14 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
+- `npm test`: 159 backend unit and integration tests, then the frontend type check and lint.
+- `npm run test:e2e`: 18 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, the exception agent and briefing, fast-forward, the fingerprint, contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
 
 ## Deploying on Vultr
 
@@ -205,7 +241,7 @@ HOST=root@<ip> ./update.sh            # later: pull and rebuild
 - **Customer:** mid-market companies (roughly 1,000 to 20,000 invoices a month) whose ERP automation still leaves exceptions, contract compliance and fraud checks to people.
 - **Pricing:** about $1 per invoice processed, against an average manual cost of about $10, plus a share of contract recoveries is a natural second line. Inference costs well under a cent per invoice on Vultr.
 - **Market:** analyst estimates put AP automation software at roughly $3 to $5 billion in 2025, growing 11% to 14% a year ([360iResearch](https://www.giiresearch.com/report/ires1714691-accounts-payable-automation-market-by-components.html), [Global Industry Analysts](https://marketresearch.com/Global-Industry-Analysts-v1039/Accounts-Payable-Automation-39661064)).
-- **Competition:** Bill.com, Tipalti, Stampli, AvidXchange and AppZen capture invoices, route approvals and flag anomalies. Tollgate works the exceptions to resolution, enforces contract terms on every invoice, plans payment timing, and is built to be safe with an LLM in the loop: deterministic controls, a critic, a policy guard, pixel-level hidden-text detection, published evals and a verifiable audit trail.
+- **Competition:** Bill.com, Tipalti, Stampli, AvidXchange and AppZen capture invoices, route approvals and flag anomalies. Tollgate works the exceptions to resolution by asking the people who can settle them, checks each document against a model of how that vendor's invoices are made, enforces contract terms on every invoice, plans payment timing, and is built to be safe with an LLM in the loop: deterministic controls, a critic, a policy guard, pixel-level hidden-text detection, published evals and a verifiable audit trail.
 
 ## License
 

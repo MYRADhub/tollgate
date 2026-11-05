@@ -271,3 +271,11 @@ def test_colleague_questions_are_capped(db):
         s.flush()
         with pytest.raises(agent.Denied, match="already asked 3 times"):
             agent._execute(s, i, {"type": "ask_colleague", "topic": "po_confirm", "po_number": "PO-24111", "subject": "x", "body": "y"})
+
+
+def test_billing_errors_are_sent_to_the_vendor_not_a_colleague(db):
+    ids = load("brightline-BIS-2077.pdf")
+    with session_scope() as s:
+        i = s.get(Invoice, ids["BIS-2077"])
+        with pytest.raises(agent.Denied, match="PRICE_VARIANCE is the vendor's to fix: email_vendor"):
+            agent._execute(s, i, {"type": "ask_colleague", "topic": "accept_charge", "po_number": "PO-24107", "line": 1})

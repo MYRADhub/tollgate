@@ -67,6 +67,8 @@ ACTIONS_DOC = """Allowed actions (JSON objects in "actions", executed in order):
     ask the PO's budget owner: po_confirm = does this invoice belong to that PO (for a missing PO number);
     receipt = have the goods arrived; accept_charge = accept invoice line N that is not on the PO.
     The answer arrives later as a new trigger; hold with waiting_for "colleague" meanwhile.
+    Only for NO_PO, QTY_NOT_RECEIVED and UNORDERED_ITEM findings. Billing errors (price above the PO,
+    wrong arithmetic, more than was ordered) are the vendor's to fix: email_vendor for a corrected invoice.
 {"type":"attach_po","po_number":str}                        after the owner confirmed it (checked in code)
 {"type":"accept_charge","line":int}                         add that line to the PO as a change order, after the owner agreed
 {"type":"escalate","reason":str,"recommendation":str}       hand the invoice to a person with what you recommend they do
@@ -636,7 +638,9 @@ def _ask_colleague(s: Session, inv: Invoice, a: dict) -> str:
         raise Denied(f"ask_colleague refused: unknown topic {topic!r}")
     codes = {f.code for f in open_blocking(inv)}
     if NEEDS[topic] not in codes:
-        raise Denied(f"ask_colleague refused: no open {NEEDS[topic]} finding to ask about")
+        fix = sorted(codes & VENDOR_FIXABLE)
+        raise Denied(f"ask_colleague refused: no open {NEEDS[topic]} finding to ask about"
+                     + (f". {', '.join(fix)} is the vendor's to fix: email_vendor for a corrected invoice and hold for the vendor" if fix else ""))
     po = _vendor_po(s, inv, a.get("po_number") or inv.po_number)
     if po is None:
         raise Denied(f"ask_colleague refused: {a.get('po_number') or inv.po_number or 'that'} is not an open PO of this invoice's vendor")

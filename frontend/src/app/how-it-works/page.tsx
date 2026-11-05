@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
-import { ArrowDown, Bot, Cloud, Cpu, Database, FileSearch, HardDrive, Lock, Mail, MailQuestion, Scale, Server, ShieldCheck, Users } from "lucide-react";
+import { ArrowDown, Bot, Cloud, Cpu, Database, FileSearch, Fingerprint, HardDrive, Lock, Mail, MailQuestion, MessagesSquare, Scale, Server, ShieldCheck, Users } from "lucide-react";
 import { Stats, microMoney, money, useData } from "@/lib/api";
 import { Card, Mono } from "@/components/ui";
 
@@ -64,12 +64,20 @@ export default function HowItWorks() {
             Pages are rendered to images for the vision model, so scans work. Every key value is then grounded against the PDF text layer. Separately, each text run is compared with the rendered pixels: text that is in the file but invisible on the page (white, microscopic, covered) is surfaced. Instruction-shaped text, the content-safety model ({c?.models.safety ?? "safety model"}) and the reader&apos;s own report of instructions it saw raise a quarantine.
           </Step>
           <Down />
-          <Step icon={<ShieldCheck className="h-4 w-4" />} title={`3. ${c?.controls.length ?? 23} deterministic controls, then the contract`} who="Plain Python, no model">
+          <Step icon={<Fingerprint className="h-4 w-4" />} title="Is this really the vendor's document?" who="Tollgate's own model, trained per vendor">
+            Every vendor&apos;s billing system makes its PDFs the same way: the same software, fonts, label positions and line spacing. Tollgate trains a one-class model per vendor on its past invoices and scores each new PDF against it. An invoice rebuilt in a word processor, made from another company&apos;s template, or edited to change a number does not match, even when every field on it is right; the finding says which features gave it away. Held-out results are on the Vendors page.
+          </Step>
+          <Down />
+          <Step icon={<ShieldCheck className="h-4 w-4" />} title={`3. ${c?.controls.length ?? 24} controls, then the contract`} who="Plain Python, no model">
             Vendor master match, lookalike names and tax ID conflicts, verified bank account, duplicate and resubmission detection, split billing under the approval limit, line and total arithmetic, PO existence, ownership and status, currency, item on PO, price within {c?.price_tolerance_pct ?? 2}% of PO, cumulative quantity against ordered and received, payment terms. Then the vendor&apos;s approved contract terms are applied: service credits from our own uptime monitoring, volume prices, price-increase caps. Money owed back is deducted, with the clause quoted in the remittance advice.
           </Step>
           <Down />
-          <Step icon={<Bot className="h-4 w-4" />} title="4. The agent plans" who={`Vultr Serverless Inference: ${c?.models.reasoning ?? "reasoning model"}`}>
-            The model sees the findings, the PO, the vendor history and the email thread, and returns a plan: email the vendor for a corrected invoice, ask the budget owner whether goods arrived, request approval, open a bank change, hold, reject, or pay. Document and email text is passed as untrusted data.
+          <Step icon={<Bot className="h-4 w-4" />} title="4. The agent investigates, then plans" who={`Vultr Serverless Inference: ${c?.models.reasoning ?? "reasoning model"}`}>
+            For an exception, the model first looks things up with read-only tools, one call at a time: the vendor&apos;s open POs, what was ordered, received and already billed, earlier answers, the vendor&apos;s history. Every lookup is in the audit trail. Then it returns a plan: ask the budget owner, email the vendor for a corrected invoice, request approval, open a bank change, hold, reject, hand over with a recommendation, or pay. Document and email text is passed as untrusted data.
+          </Step>
+          <Down />
+          <Step icon={<MessagesSquare className="h-4 w-4" />} title="It works exceptions until they clear" who="Budget owners answer; code checks the answer">
+            Most exceptions are settled by asking someone inside the company. No PO number: it finds the open PO that covers the lines and asks its owner to confirm, then attaches it. A charge not on the PO: it asks the owner, and up to {money(500)} adds it as a change order. Goods not received: it asks, waits for the delivery, and pays when receiving logs it. The agent acts on the owner&apos;s structured answer (yes, no, later), and code checks that answer came from that PO&apos;s owner. Approvers who sit on a payment get a reminder. In this demo the colleagues are simulated; use Fast-forward to watch a day pass.
           </Step>
           <Down />
           <Step icon={<Users className="h-4 w-4" />} title="5. A critic checks the money" who={`Vultr Serverless Inference: ${c?.models.critic ?? "a second model"}`}>
