@@ -49,6 +49,8 @@ POLICY = f"""Halden Robotics accounts-payable policy (enforced in code; you cann
   two different approvers. Open a bank change request and hold the invoice.
 - Money owed to us under a contract (findings marked "Owed to us") is deducted automatically at payment with
   remittance advice. It is not an exception: never email the vendor or hold the invoice over it.
+- DOC_FINGERPRINT means the PDF was not produced by the vendor's own billing system (rebuilt or edited). Ask the
+  vendor, at the contact on file, to confirm they issued it, and hand it to a person; an email reply is not enough to pay it.
 - Duplicates, unknown vendors and invoices against someone else's PO may be rejected.
 - Work exceptions before handing them to a person: a missing PO number, goods not yet received and a small charge
   that is not on the PO are usually settled by asking the budget owner. A PO is attached only after its owner
@@ -236,7 +238,7 @@ def _questions_text(s: Session, inv: Invoice) -> str:
     rows = [q for q in questions(s, inv.id) if q.topic != "approval"]
     return "\n".join(
         f"  {q.topic} to {q.person_name} about {q.po_number or '-'}{f' line {q.line}' if q.line else ''}: {q.answer}"
-        + (f" (expected {q.eta:%a %H:%M})" if q.eta else "") for q in rows
+        + (f" (expected {q.eta:%a %H:%M} UTC)" if q.eta else "") for q in rows
     ) or "  none"
 
 
@@ -282,6 +284,16 @@ def plan_rule_based(s: Session, inv: Invoice, trigger: str, extra: str | None, d
             {"type": "hold", "waiting_for": "person", "reason": "Bank change needs a callback and two approvers."},
         ]
         return {"summary": "Held: remit-to account differs from the verified account.", "actions": actions}
+    if "DOC_FINGERPRINT" in codes and v is not None:
+        f = next(f for f in blocking if f.code == "DOC_FINGERPRINT")
+        actions.append({"type": "email_vendor", "subject": f"Did you issue invoice {inv.number}?",
+                        "body": f"Hello,\n\nWe received invoice {inv.number} for {_money(inv.total)} in your name, but the document does not match the invoices your billing "
+                                f"system sends us. Before we process it, could you confirm whether you issued it? If you did not, please let us know: someone may be sending invoices "
+                                f"in your name.\n\n{SIGN}"})
+        actions.append({"type": "escalate", "reason": f.title,
+                        "recommendation": f"Call {v.name} on the number on file to confirm they issued {inv.number}. Pay only if they do; otherwise reject it and tell them."})
+        return {"summary": f"{inv.number} does not look like it came from {v.name}'s billing system: " + "; ".join((f.evidence or {}).get("reasons", [])[:2]) +
+                           ". Asked the vendor to confirm and handed it to a person.", "actions": actions}
     if codes & {"UNKNOWN_VENDOR", "PO_NOT_FOUND", "PO_VENDOR_MISMATCH"} or ("NO_PO" in codes and v is None):
         actions.append({"type": "reject", "reason": "No approved vendor or purchase order supports this invoice."})
         return {"summary": "Rejected: no vendor or PO on record.", "actions": actions}
@@ -352,8 +364,8 @@ def work_exception(s: Session, inv: Invoice, codes: set[str]) -> dict | None:
             if last and last.answer == "pending":
                 return {"summary": f"Waiting for {last.person_name} to say whether the goods arrived.", "actions": [_hold_colleague(f"Asked {last.person_name} about the goods.")]}
             if last and last.answer == "later" and last.eta and clock.now() < clock.aware(last.eta) + timedelta(hours=4):
-                return {"summary": f"{last.person_name} says the rest arrives {last.eta:%a %H:%M}; I will pay once receiving logs it.",
-                        "actions": [{"type": "hold", "waiting_for": "receipt", "reason": f"{first_name(last.person_name)} expects the goods {last.eta:%a %H:%M}."}]}
+                return {"summary": f"{last.person_name} says the rest arrives {clock.aware(last.eta):%a %H:%M} UTC; I will pay once receiving logs it.",
+                        "actions": [{"type": "hold", "waiting_for": "receipt", "reason": f"{first_name(last.person_name)} expects the goods {clock.aware(last.eta):%a %H:%M} UTC."}]}
             if len(qs) >= 2:
                 f = next((f for f in open_blocking(inv) if f.code == "QTY_NOT_RECEIVED"), None)
                 return _escalate("The goods are still not logged after two checks with the budget owner.",

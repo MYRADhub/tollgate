@@ -51,7 +51,7 @@ def test_demo_inbox_outcomes(db):
     assert codes(ids["ostara-OC-7720.pdf"], recover=True) == ["VOLUME_PRICE"]
     assert codes(ids["brightline-BIS-2077.pdf"], recover=True) == ["PRICE_VARIANCE"]  # not double-claimed under the price cap
     assert codes(ids["vantage-VCS-10488.pdf"]) == ["BANK_MISMATCH"]
-    assert set(codes(ids["brightline-BIS-2090.pdf"])) == {"PROMPT_INJECTION", "BANK_MISMATCH", "QTY_OVER_ORDERED"}
+    assert set(codes(ids["brightline-BIS-2090.pdf"])) == {"PROMPT_INJECTION", "BANK_MISMATCH", "QTY_OVER_ORDERED", "DOC_FINGERPRINT"}
     assert {"UNKNOWN_VENDOR", "NO_PO"} <= set(codes(ids["apex-ASA-0091.pdf"]))
 
     with session_scope() as s:

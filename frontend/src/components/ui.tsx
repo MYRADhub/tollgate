@@ -52,6 +52,7 @@ export const FLAG_LABEL: Record<string, string> = {
   PRICE_VARIANCE: "Over PO price",
   QTY_OVER_ORDERED: "Over ordered qty",
   QTY_NOT_RECEIVED: "Not received",
+  DOC_FINGERPRINT: "Not the vendor's document",
   TERMS_SHORTENED: "Short terms",
   LOOKALIKE_VENDOR: "Lookalike vendor",
   TAX_ID_CONFLICT: "Tax ID conflict",

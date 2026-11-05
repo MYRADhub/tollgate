@@ -194,11 +194,11 @@ def remind_approver(s: Session, approval_id: int) -> None:
         s, invoice_id=inv.id, to=to, simulate=True,
         subject=f"Reminder: {v.name if v else 'vendor'} {inv.number} is waiting for your approval [TG-{inv.id}]",
         body=f"Hi {first_name(name)},\n\n{inv.number} for {inv.currency or 'USD'} {inv.total:,.2f} has been waiting for {a.required_role.value} approval since "
-             f"{a.created_at:%a %d %b %H:%M}. Everything else is done: {inv.summary or ''}\n\nIt is on your Approvals page.\n\nTollgate, Accounts Payable",
+             f"{a.created_at:%a %d %b %H:%M} UTC. Everything else is done: {inv.summary or ''}\n\nIt is on your Approvals page.\n\nTollgate, Accounts Payable",
     )
     s.add(ColleagueQuestion(invoice_id=inv.id, topic="approval", person_name=name, person_email=to, question_email_id=msg.id, answer="none"))
     audit.record(s, actor="agent", kind="approval_reminder", invoice_id=inv.id,
-                 summary=f"Reminded {name} ({a.required_role.value}): {inv.number} has waited for approval since {a.created_at:%a %H:%M}")
+                 summary=f"Reminded {name} ({a.required_role.value}): {inv.number} has waited for approval since {a.created_at:%a %H:%M} UTC")
     if sent + 1 < 2:
         from .pipeline import enqueue
 

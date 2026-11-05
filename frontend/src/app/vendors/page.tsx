@@ -1,9 +1,11 @@
 "use client";
 
 import { useData, money } from "@/lib/api";
+import { Fingerprint } from "lucide-react";
 import { Card, Empty, Mono, cx } from "@/components/ui";
 
-type V = { id: string; name: string; email: string; tax_id: string; bank_name: string; bank_account: string; bank_verified_at: string | null; payment_terms_days: number; status: string; invoices: number; exceptions: number };
+type FP = { trained_on: number; holdout_genuine: number; false_alarms: number; caught: number; forged_total: number; producer: string; fonts: string; forgeries: Record<string, { caught: number; of: number }> };
+type V = { id: string; name: string; email: string; tax_id: string; bank_name: string; bank_account: string; bank_verified_at: string | null; payment_terms_days: number; status: string; invoices: number; exceptions: number; fingerprint: FP | null };
 type PO = { number: string; vendor: string; department: string; budget_owner_name: string; status: string; issued_on: string; total: number; lines: { sku: string; description: string; quantity: number; unit_price: number; received: number }[] };
 
 export default function VendorsPage() {
@@ -43,6 +45,46 @@ export default function VendorsPage() {
           </div>
         )}
       </Card>
+      {vendors && vendors.some((v) => v.fingerprint) && (
+        <Card title={<span className="flex items-center gap-1.5"><Fingerprint className="h-4 w-4 text-indigo-600" /> Document fingerprints: Tollgate&apos;s own model</span>} pad={false}>
+          <p className="px-4 pt-3 text-[12.5px] leading-relaxed text-slate-600">
+            One model per vendor, trained on that vendor&apos;s past invoices. It learns how their billing system makes a PDF: the software, the fonts, where every label sits,
+            the line spacing. An invoice rebuilt in a word processor, made from someone else&apos;s template, or edited to change a number does not match, even when every field is right.
+            Tested on held-out invoices the model never saw and on forgeries of four kinds. In this demo each vendor&apos;s archive is generated; in production it is the vendor&apos;s real invoice history.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="mt-2 w-full text-[12.5px]">
+              <thead>
+                <tr className="border-y border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-2 font-medium">Vendor</th>
+                  <th className="px-2 py-2 font-medium">Their billing system</th>
+                  <th className="px-2 py-2 font-medium">Fonts</th>
+                  <th className="px-2 py-2 text-right font-medium">Trained on</th>
+                  <th className="px-2 py-2 text-right font-medium">False alarms</th>
+                  <th className="px-4 py-2 text-right font-medium">Forgeries caught</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {vendors.filter((v) => v.fingerprint).map((v) => {
+                  const f = v.fingerprint!;
+                  return (
+                    <tr key={v.id}>
+                      <td className="px-4 py-1.5 font-medium">{v.name}</td>
+                      <td className="px-2 py-1.5 text-slate-600">{f.producer}</td>
+                      <td className="px-2 py-1.5 text-slate-600">{f.fonts.replace(/\+/g, ", ")}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{f.trained_on} invoices</td>
+                      <td className={cx("px-2 py-1.5 text-right tabular-nums", f.false_alarms ? "text-rose-700" : "text-emerald-700")}>{f.false_alarms} of {f.holdout_genuine}</td>
+                      <td className="px-4 py-1.5 text-right tabular-nums" title={Object.entries(f.forgeries).map(([k, x]) => `${k}: ${x.caught}/${x.of}`).join("\n")}>
+                        {f.caught} of {f.forged_total}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         {pos?.map((p) => (
           <Card key={p.number} title={<span><Mono>{p.number}</Mono> · {p.vendor}</span>} action={<span className="text-xs text-slate-500">{p.department} · {p.budget_owner_name}</span>} pad={false}>

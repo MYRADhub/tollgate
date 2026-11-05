@@ -270,6 +270,7 @@ export type InvoiceDetail = InvoiceRow & {
     notes?: string | null;
     vendor_email_on_document?: string | null;
     vendor_tax_id?: string | null;
+    fingerprint?: { score: number; threshold: number; anomalous: boolean; reasons: string[] } | null;
   };
   agent_state: { waiting_for?: string; hold_reason?: string; decisions?: number; recommendation?: string };
   questions: ColleagueQuestion[];
@@ -365,7 +366,7 @@ export type Briefing = {
   recovered: number;
   time_saved: { hours: number; minutes_per_exception: number; assumption: string };
   resolved: (BriefingItem & { status: string; summary: string | null; steps: number; hours: number; by_agent: boolean; people: string[] })[];
-  working: (BriefingItem & { waiting_on: string; what: string | null; next: string | null; next_at: string | null })[];
+  working: (BriefingItem & { waiting_on: string; eta: string | null; what: string | null; next: string | null; next_at: string | null })[];
   needs_you: (BriefingItem & {
     kind: "approval" | "bank_change" | "quarantine" | "review" | "credit";
     title: string;

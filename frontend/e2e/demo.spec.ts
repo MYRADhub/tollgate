@@ -57,6 +57,15 @@ test.describe.serial("guided demo, end to end", () => {
     await page.getByRole("button", { name: "What the agent read" }).click();
     await expect(page.getByText("Text in the file that no person can see on the page").first()).toBeVisible();
     await expect(page.getByText("Held").first()).toBeVisible();
+    await expect(page.getByText("Not made the way Brightline Industrial Supply's invoices are made").first()).toBeVisible();
+    await expect(page.getByText(/Microsoft: Print To PDF/).first()).toBeVisible();
+  });
+
+  test("the vendor page shows each fingerprint model and how it was tested", async ({ page }) => {
+    await page.goto("/vendors");
+    await expect(page.getByText("Document fingerprints: Tollgate's own model").first()).toBeVisible();
+    await expect(page.getByText("Sage Intacct Reporting Services").first()).toBeVisible();
+    await expect(page.getByText("16 of 16").first()).toBeVisible();
   });
 
   test("a clerk cannot approve the controller's payment; the controller can", async ({ page, request }) => {

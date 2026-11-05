@@ -486,3 +486,14 @@ class ColleagueQuestion(Base):
     eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VendorFingerprint(Base):
+    """A one-class model of how one vendor's invoices are produced, trained on
+    that vendor's past invoices (see fingerprint.py), with its held-out results."""
+
+    __tablename__ = "vendor_fingerprints"
+    vendor_id: Mapped[str] = mapped_column(String(12), primary_key=True)
+    model: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, HandCoins, Hash, Mail, MessagesSquare, PackageCheck, Scale, Search, ShieldAlert, ShieldCheck, User, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleAlert, EyeOff, FileText, Fingerprint, HandCoins, Hash, Mail, MessagesSquare, PackageCheck, Scale, Search, ShieldAlert, ShieldCheck, User, Users } from "lucide-react";
 import { CriticReview, InvoiceDetail, ROLE_LABEL, api, clockLabel, markSeen, microMoney, money, useActor, useData } from "@/lib/api";
 import { BankChangeReview, PaymentApproval } from "@/components/ApprovalControls";
 import { useFeedback } from "@/components/Feedback";
@@ -433,6 +433,33 @@ function Colleagues({ inv }: { inv: InvoiceDetail }) {
   );
 }
 
+function FingerprintCard({ inv }: { inv: InvoiceDetail }) {
+  const f = inv.extraction?.fingerprint;
+  if (!f) return null;
+  const name = inv.vendor?.name || "this vendor";
+  return (
+    <Card title={<span className="flex items-center gap-1.5"><Fingerprint className="h-4 w-4 text-indigo-600" /> Document fingerprint</span>}>
+      {f.anomalous ? (
+        <div className="space-y-1.5">
+          <div className="text-[13px] font-medium text-rose-700">Not made the way {name}&apos;s invoices are made</div>
+          <ul className="list-disc space-y-0.5 pl-5 text-[12.5px] text-slate-700">
+            {f.reasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-[13px] text-emerald-700">
+          <CheckCircle2 className="h-4 w-4" /> Produced the way {name}&apos;s past invoices were: same software, fonts and layout.
+        </div>
+      )}
+      <div className="mt-2 text-[11px] text-slate-500">
+        Tollgate&apos;s own model, trained on this vendor&apos;s past invoices. Score {f.score} against a threshold of {f.threshold}. <Link href="/vendors" className="text-indigo-600 hover:underline">How it was tested</Link>
+      </div>
+    </Card>
+  );
+}
+
 function DocumentPanel({ inv }: { inv: InvoiceDetail }) {
   const [tab, setTab] = useState<"pdf" | "fields">("pdf");
   const hidden = inv.extraction.hidden_spans || [];
@@ -567,6 +594,7 @@ export default function InvoicePage() {
         </div>
         <div className="space-y-4">
           <DocumentPanel inv={inv} />
+          <FingerprintCard inv={inv} />
           {inv.vendor && (
             <Card title="Vendor master record">
               <Row k="Contact on file" v={inv.vendor.email} />

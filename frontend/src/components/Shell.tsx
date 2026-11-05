@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useContext, useEffect, useState } from "react";
 import { Activity, BookCheck, Building2, Clock, FastForward, ScrollText, FlaskConical, Gauge, Inbox, Landmark, MailQuestion, Network, Scale, ShieldCheck, Users } from "lucide-react";
-import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, ago, api, clockLabel, companyNow, setClockOffset, useData, useLiveFeed, useStoredActor } from "@/lib/api";
+import { ActorContext, LiveContext, PEOPLE, ROLE_LABEL, ago, api, clockLabel, setClockOffset, useData, useLiveFeed, useStoredActor } from "@/lib/api";
 import { FeedbackProvider, useFeedback } from "./Feedback";
 import { Logo } from "./Logo";
 import { cx } from "./ui";
@@ -129,12 +129,12 @@ function DemoClock() {
   const fb = useFeedback();
   const { data, reload } = useData<ClockCfg>("/api/config");
   const [busy, setBusy] = useState(false);
-  const [, setTick] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (data?.clock) setClockOffset(data.clock.offset_hours);
   }, [data]);
   useEffect(() => {
-    const t = setInterval(() => setTick((x) => x + 1), 30000);
+    const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
   if (!data?.clock || !data.demo_mode) return null;
@@ -160,7 +160,7 @@ function DemoClock() {
     <div className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-slate-600" data-testid="demo-clock">
       <span className="hidden items-center gap-1 sm:inline-flex" title="The demo company's clock. Fast-forward moves it on so you can watch a day of the agent's work in seconds.">
         <Clock className="h-3.5 w-3.5 text-slate-400" />
-        {clockLabel(new Date(companyNow()).toISOString())}
+        {clockLabel(new Date(now + data.clock.offset_hours * 3600 * 1000).toISOString())}
         {days > 0 && <span className="text-slate-400">(+{days % 1 ? days.toFixed(1) : days}d)</span>}
       </span>
       <button

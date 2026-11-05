@@ -86,6 +86,8 @@ def _recommend(s: Session, inv: Invoice, kind: str) -> str:
         return rec
     if kind == "quarantine":
         why = "Reject it: the document carries instructions written for the AI"
+        if "DOC_FINGERPRINT" in codes:
+            why += ", the PDF was not produced by the vendor's billing system"
         if "NOT_ON_VENDOR_STATEMENT" in codes:
             why += ", and the vendor's own statement does not list it"
         if "BANK_MISMATCH" in codes:
@@ -153,15 +155,15 @@ def build(s: Session) -> dict:
             if final.status == InvoiceStatus.awaiting_vendor:
                 on = f"{v.name if v else 'the vendor'} (vendor)"
             elif last_q is not None:
-                on = f"{last_q.person_name}" + (" (goods due " + clock.aware(last_q.eta).strftime("%a %H:%M") + ")" if last_q.eta and last_q.answer == "later" else "")
+                on = last_q.person_name
             else:
                 on = "the agent"
             nxt = next((j for j in jobs.get(final.id, []) if j.kind in ("followup", "check_in", "colleague_reply", "decide", "recheck")), None)
             label = {"followup": "follows up with the vendor", "check_in": "checks the receipt again", "colleague_reply": "expects an answer",
                      "decide": "re-plans", "recheck": "re-checks"}
+            eta = last_q.eta if (final.status != InvoiceStatus.awaiting_vendor and last_q is not None and last_q.answer == "later") else None
             working.append({**base, "waiting_on": on, "what": (final.agent_state or {}).get("hold_reason") or final.summary,
-                            "next": f"{label[nxt.kind]} {clock.aware(nxt.run_after).strftime('%a %H:%M')}" if nxt else None,
-                            "next_at": _iso(nxt.run_after) if nxt else None})
+                            "eta": _iso(eta), "next": label[nxt.kind] if nxt else None, "next_at": _iso(nxt.run_after) if nxt else None})
             continue
         if final.status in (InvoiceStatus.on_hold, InvoiceStatus.awaiting_approval):
             codes = {f.code for f in final.findings if not f.resolved}

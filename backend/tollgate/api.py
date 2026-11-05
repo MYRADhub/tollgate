@@ -401,6 +401,15 @@ def vendors(s: Session = Depends(get_session)):
         d["exceptions"] = s.execute(
             select(func.count(func.distinct(Finding.invoice_id))).join(Invoice, Invoice.id == Finding.invoice_id).where(Invoice.vendor_id == v.id, Finding.severity == Severity.block)
         ).scalar_one()
+        from .models import VendorFingerprint
+
+        fp = s.get(VendorFingerprint, v.id)
+        d["fingerprint"] = None if fp is None else {
+            **fp.metrics,
+            "producer": max(fp.model["cat"]["producer"], key=fp.model["cat"]["producer"].get),
+            "fonts": max(fp.model["cat"]["fonts"], key=fp.model["cat"]["fonts"].get),
+            "threshold": fp.model.get("threshold"),
+        }
         out.append(d)
     return out
 

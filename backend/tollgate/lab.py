@@ -59,6 +59,9 @@ TEMPLATES = [
     Template("padded_fee", "Padded fee", "Overbilling",
              "A clean Granite invoice with an extra 'expedited handling fee' line that was never ordered.",
              "Line not on the PO: blocked.", None),
+    Template("pdf_edit", "A real invoice, quietly edited", "Document tampering",
+             "A genuine Lumen invoice opened in a PDF editor: toner nudged from $89.00 to $90.50 a cartridge, inside the 2% price tolerance, with the totals fixed to match.",
+             "Every field check passes. The vendor fingerprint model sees the editor's text and metadata on a Lumen document and holds it.", None),
     Template("math_trick", "Inflated total", "Overbilling",
              "Lines and tax are right, but the total at the bottom is $500 higher.",
              "Subtotal plus tax does not equal the total: blocked.", None),
@@ -96,6 +99,12 @@ def build(key: str, text: str | None = None, seq: int = 1) -> list[tuple[str, by
     elif key == "padded_fee":
         spec = spec_for("granite", f"GE-{8100 + seq}", d, "PO-24104", [("CBL-12AWG", "12 AWG THHN copper, 500 ft spool", 1, "94.00"),
                                                                        ("FEE-EXP", "Expedited handling fee", 1, "450.00")])
+    elif key == "pdf_edit":
+        from .fingerprint import edit_runs
+
+        spec = spec_for("lumen", f"LOS-{9500 + seq}", d, "PO-24106", [("TONER-HP", "Toner cartridge, HP 58A", 10, "89.00")])
+        edited = edit_runs(render(spec), {"89.00": "90.50", "890.00": "905.00", "71.20": "72.40", "961.20": "977.40"})
+        return [(f"lab-{tag}-{key}.pdf", edited, BY_KEY[key].name)]
     elif key == "math_trick":
         spec = spec_for("lumen", f"LOS-{9100 + seq}", d, "PO-24106", [("PAPER-LTR", "Copy paper, letter, case of 10 reams", 5, "6.20")])
         spec.override_total = spec.subtotal + spec.tax + D("500.00")

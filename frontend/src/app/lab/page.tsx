@@ -19,7 +19,7 @@ type Evals = {
   suites?: Record<string, { case: string; name?: string; runs: number; passed: number; controls_fired?: Record<string, number> }[]>;
 };
 
-const SUITE: Record<string, string> = { attacks: "Attacks stopped before payment", inbox: "Demo inbox outcomes", contracts: "Contract terms read correctly", critic: "Critic verdicts", inquiries: "Vendor questions answered safely", statements: "Vendor statements read and reconciled" };
+const SUITE: Record<string, string> = { attacks: "Attacks stopped before payment", inbox: "Demo inbox outcomes", contracts: "Contract terms read correctly", critic: "Critic verdicts", inquiries: "Vendor questions answered safely", statements: "Vendor statements read and reconciled", fingerprint: "Document fingerprint (our own model)" };
 
 function Launch({ t, onDone }: { t: Template; onDone: () => void }) {
   const fb = useFeedback();

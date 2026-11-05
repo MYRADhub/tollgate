@@ -115,7 +115,10 @@ def read_document(s: Session, inv: Invoice) -> None:
         )
         for i, ln in enumerate(ex.lines)
     ]
+    from . import fingerprint
+
     inv.extraction = {
+        "fingerprint_features": fingerprint.features(data),
         "method": ex.method,
         "vendor_tax_id": ex.vendor_tax_id,
         "vendor_email_on_document": ex.vendor_email,
@@ -257,12 +260,30 @@ def statement_findings(s: Session, inv: Invoice, findings: list[checks.FindingDa
     return out
 
 
+def fingerprint_findings(s: Session, inv: Invoice) -> list[checks.FindingData]:
+    """Was this PDF produced the way this vendor's invoices are produced?"""
+    from . import fingerprint
+
+    ex = inv.extraction or {}
+    v = s.get(Vendor, inv.vendor_id) if inv.vendor_id else None
+    verdict = fingerprint.check(s, inv.vendor_id, ex.get("fingerprint_features"), v.name if v else "this vendor")
+    inv.extraction = {**ex, "fingerprint": verdict.as_dict() if verdict else None}
+    if verdict is None or not verdict.anomalous:
+        return []
+    return [checks.FindingData(
+        "DOC_FINGERPRINT", Severity.block, f"Not made the way {v.name}'s invoices are made",
+        f"Tollgate's fingerprint model for {v.name}, trained on its past invoices, scores this document {verdict.score:.0f} against a threshold of "
+        f"{verdict.threshold:.0f}. " + " ".join(r.rstrip(".") + "." for r in verdict.reasons[:3]),
+        verdict.as_dict(), inv.total)]
+
+
 def run_controls(s: Session, inv: Invoice) -> checks.CheckResult:
     _set_status(s, inv, InvoiceStatus.checking)
     result = checks.run_checks(to_check_input(inv), build_context(s, inv))
     inv.vendor_id = result.vendor.id if result.vendor else None
     result.findings.extend(contract_recoveries(s, inv, result.findings))
     result.findings.extend(statement_findings(s, inv, result.findings))
+    result.findings.extend(fingerprint_findings(s, inv))
 
     # Keep human resolutions of findings that recur; drop findings no longer true.
     previous = {(f.code, f.title): f for f in inv.findings}
@@ -310,7 +331,7 @@ def checks_run() -> list[str]:
         "hidden instructions", "extraction grounding", "vendor master", "lookalike vendor", "tax ID", "vendor status", "bank account on file",
         "duplicate file", "duplicate number", "resubmission", "split billing", "line math", "subtotal", "total and tax",
         "PO exists", "PO vendor", "PO open", "currency", "item on PO", "price vs PO", "qty vs ordered",
-        "qty vs received", "payment terms",
+        "qty vs received", "payment terms", "vendor document fingerprint",
     ]
 
 

@@ -161,11 +161,14 @@ export function Briefing() {
                       <Flag key={c} code={c} />
                     ))}
                   </div>
-                  <div className="text-[12.5px] text-slate-700">Waiting on {x.waiting_on}</div>
+                  <div className="text-[12.5px] text-slate-700">
+                    Waiting on {x.waiting_on}
+                    {x.eta && <span className="text-slate-500"> (goods due {clockLabel(x.eta)})</span>}
+                  </div>
                   {x.what && <div className="line-clamp-2 text-[12px] text-slate-500">{x.what}</div>}
-                  {x.next && (
+                  {x.next && x.next_at && (
                     <div className="flex items-center gap-1 text-[11.5px] text-violet-700">
-                      <Clock3 className="h-3 w-3" /> Agent {x.next}
+                      <Clock3 className="h-3 w-3" /> Agent {x.next} {clockLabel(x.next_at)}
                     </div>
                   )}
                 </li>

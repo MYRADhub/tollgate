@@ -9,6 +9,7 @@ Four suites, each case run on a fresh database:
   critic     the critic must disagree with planted errors and agree with correct proposals
   inquiries  vendor questions answered correctly, with nothing disclosed to the wrong sender
   statements every line of the demo statements read exactly, and the reconciliation fully explained
+  fingerprint Tollgate's own per-vendor document model: no false alarms on held-out genuine invoices, every forgery caught
 Writes tollgate/eval_results.json, which the attack lab page shows.
 """
 
@@ -331,10 +332,27 @@ def suite_statements(runs: int) -> list[dict]:
     return out
 
 
+def suite_fingerprint(runs: int) -> list[dict]:
+    """Tollgate's own model, no inference: per vendor, trained on 30 past invoices and
+    tested on 10 held-out genuine ones and 16 forgeries of four kinds. A case passes
+    when no genuine invoice is flagged and every forgery is."""
+    from .fingerprint import train_vendor
+    from .seed import VENDORS
+
+    out = []
+    for v in VENDORS:
+        _, m = train_vendor(v.slug)
+        ok = m["false_alarms"] == 0 and m["caught"] == m["forged_total"]
+        out.append({"case": v.slug, "runs": 1, "passed": int(ok), "false_alarms": m["false_alarms"], "holdout_genuine": m["holdout_genuine"],
+                    "caught": m["caught"], "forged_total": m["forged_total"], "forgeries": m["forgeries"]})
+        print(f"  fingerprint {v.slug:12} false alarms {m['false_alarms']}/{m['holdout_genuine']}, forgeries caught {m['caught']}/{m['forged_total']}")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=3)
-    ap.add_argument("--suites", default="attacks,inbox,contracts,critic,inquiries,statements")
+    ap.add_argument("--suites", default="attacks,inbox,contracts,critic,inquiries,statements,fingerprint")
     a = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
     from .config import get_settings
@@ -349,7 +367,8 @@ def main() -> None:
     suites = {}
     for name in a.suites.split(","):
         print(f"== {name}")
-        suites[name] = {"attacks": suite_attacks, "inbox": suite_inbox, "contracts": suite_contracts, "critic": suite_critic, "inquiries": suite_inquiries, "statements": suite_statements}[name](a.runs)
+        suites[name] = {"attacks": suite_attacks, "inbox": suite_inbox, "contracts": suite_contracts, "critic": suite_critic, "inquiries": suite_inquiries, "statements": suite_statements,
+                        "fingerprint": suite_fingerprint}[name](a.runs)
     total = sum(c["runs"] for v in suites.values() for c in v)
     passed = sum(c["passed"] for v in suites.values() for c in v)
     result = {
@@ -361,7 +380,7 @@ def main() -> None:
         "seconds": round(time.time() - t0, 1),
         "suites": suites,
     }
-    if OUT.exists() and a.suites != "attacks,inbox,contracts,critic,inquiries,statements":
+    if OUT.exists() and a.suites != "attacks,inbox,contracts,critic,inquiries,statements,fingerprint":
         prev = json.loads(OUT.read_text())
         prev["suites"].update(suites)
         prev["ran_at"] = result["ran_at"]
