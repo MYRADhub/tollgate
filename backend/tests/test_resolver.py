@@ -279,3 +279,20 @@ def test_billing_errors_are_sent_to_the_vendor_not_a_colleague(db):
         i = s.get(Invoice, ids["BIS-2077"])
         with pytest.raises(agent.Denied, match="PRICE_VARIANCE is the vendor's to fix: email_vendor"):
             agent._execute(s, i, {"type": "ask_colleague", "topic": "accept_charge", "po_number": "PO-24107", "line": 1})
+
+
+def test_never_waits_on_the_vendor_for_a_contract_deduction(db):
+    ids = load("granite-GE-5561.pdf")
+    with session_scope() as s:
+        i = s.get(Invoice, ids["GE-5561"])
+        with pytest.raises(agent.Denied, match="nothing open on this invoice is the vendor's to fix"):
+            agent._execute(s, i, {"type": "hold", "waiting_for": "vendor", "reason": "price cap"})
+    advance(0.05)
+    advance(24)
+    with session_scope() as s:
+        i = s.get(Invoice, ids["GE-5561"])
+        assert i.status.value == "scheduled"
+        with pytest.raises(agent.Denied, match="deducted automatically"):
+            i.status = agent.InvoiceStatus.on_hold
+            agent._execute(s, i, {"type": "hold", "waiting_for": "vendor", "reason": "price cap"})
+        s.rollback()

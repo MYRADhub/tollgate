@@ -36,6 +36,7 @@ from .models import (
 
 log = logging.getLogger(__name__)
 
+NOT_THE_VENDORS = {"QTY_NOT_RECEIVED", "NO_PO"}  # settled inside the company, so never a reason to wait on the vendor
 REJECTABLE = {"DUPLICATE_FILE", "DUPLICATE_NUMBER", "DUPLICATE_SUSPECT", "UNKNOWN_VENDOR", "PO_NOT_FOUND", "PO_VENDOR_MISMATCH"}
 VENDOR_FIXABLE = {"PRICE_VARIANCE", "LINE_MATH", "SUBTOTAL_MATH", "TOTAL_MATH", "UNORDERED_ITEM", "QTY_OVER_ORDERED", "CURRENCY_MISMATCH"}
 NEVER_VIA_DOCUMENT = "Emails go only to the vendor contact in the vendor master, never to an address printed on the invoice."
@@ -199,6 +200,7 @@ def build_prompt(s: Session, inv: Invoice, trigger: str, extra: str | None, note
     findings = "\n".join(
         f"  [{f.id}] {f.severity.value.upper()} {f.code}{' (resolved: ' + (f.resolution or '') + ')' if f.resolved else ''}: {f.detail}"
         + (f" {'Owed to us' if f.severity == Severity.recover else 'At risk'}: {_money(f.amount_at_risk)}." if f.amount_at_risk else "")
+        + (" Deducted automatically at payment, with remittance advice; not an exception, nothing to ask the vendor." if f.severity == Severity.recover else "")
         for f in inv.findings
     ) or "  none"
     thread = "\n".join(f"  {e.created_at:%Y-%m-%d %H:%M} {e.direction.upper()} {e.sender} -> {e.recipient}: {e.subject}\n    {e.body[:600]}" for e in emails) or "  none"
@@ -520,6 +522,11 @@ def _execute(s: Session, inv: Invoice, a: dict) -> str:
 
     if t == "hold":
         waiting = a.get("waiting_for", "person")
+        codes = {f.code for f in open_blocking(inv)}
+        if waiting == "vendor" and codes <= NOT_THE_VENDORS:
+            raise Denied("hold for vendor refused: nothing open on this invoice is the vendor's to fix"
+                         + (f" ({', '.join(sorted(codes))} is settled inside the company: hold for receipt or colleague)" if codes else "")
+                         + "; money owed under the contract is deducted automatically at payment")
         if waiting != "person" and any(f.code == "PROMPT_INJECTION" and not f.resolved for f in inv.findings):
             waiting = "person"  # a quarantined document waits for a person, whatever else is pending
         inv.status = {"vendor": InvoiceStatus.awaiting_vendor, "approval": InvoiceStatus.awaiting_approval}.get(waiting, InvoiceStatus.on_hold)
