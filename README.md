@@ -166,6 +166,7 @@ Model choices were measured, not assumed: with thinking on, GLM-5.3 spent its wh
 9. **Statements → Load demo statements**: every cent of each gap explained; BIS-2090 is not on Brightline's statement; claim Kestrel's $320 credit as the controller.
 10. **Vendor questions**: send "Why were we short-paid?" as Polaris, then "Impersonates a vendor" and "Asks to change bank details".
 11. **Attack lab**: launch any attack, or upload your own PDF.
+    **Live mail:** the AP inbox is a real Gmail plus-address (shown on How it works). Email it an invoice PDF and it goes through the same pipeline; the agent's emails to vendors are real, and a reply with a corrected PDF is read within about 30 seconds. Replies to questions typed on the Vendor questions page are never emailed.
 12. **Audit trail → Verify chain.**
 
 ## Running locally
