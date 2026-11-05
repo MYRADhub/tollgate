@@ -69,6 +69,7 @@ export function Briefing() {
   ].filter(Boolean) as string[];
   const workTotal = (w.lookups || 0) + (w.questions || 0) + (w.emails || 0) + (w.reminders || 0) + (w.fixes || 0);
   const exc = b.exceptions;
+  const needsJudgment = b.needs_you.filter((n) => n.exceptions.length > 0).length;
   return (
     <section className="space-y-3" data-testid="briefing">
       <Card
@@ -80,16 +81,17 @@ export function Briefing() {
         }
       >
         <p className="mb-3 text-[13.5px] leading-relaxed text-slate-700">
-          The agent took {b.invoices} invoice{b.invoices === 1 ? "" : "s"}. <b>{b.touchless}</b> {b.touchless === 1 ? "was" : "were"} settled without anyone in AP touching them
-          {exc.total > 0 && (
+          The agent took {b.invoices} invoice{b.invoices === 1 ? "" : "s"}. <b>{b.touchless}</b> {b.touchless === 1 ? "was" : "were"} settled without anyone in AP touching them.
+          {exc.resolved_by_agent > 0 && (
             <>
-              , and it cleared <b>{exc.resolved_by_agent} of {exc.total}</b> exceptions on its own by asking the people who knew
+              {" "}It cleared <b>{exc.resolved_by_agent}</b> exception{exc.resolved_by_agent === 1 ? "" : "s"} on its own by asking the people who knew
             </>
           )}
-          .{" "}
+          {exc.in_progress > 0 && <>{exc.resolved_by_agent > 0 ? ", and " : " "}is still working {exc.in_progress}</>}
+          {(exc.resolved_by_agent > 0 || exc.in_progress > 0) && "."}{" "}
           {b.needs_you.length > 0 ? (
             <>
-              <b>{b.needs_you.length}</b> decision{b.needs_you.length === 1 ? " needs" : "s need"} you, each with its recommendation.
+              <b>{b.needs_you.length}</b> decision{b.needs_you.length === 1 ? " needs" : "s need"} your judgment, each with its recommendation.
             </>
           ) : (
             "Nothing needs you."
@@ -97,7 +99,12 @@ export function Briefing() {
         </p>
         <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-3 md:grid-cols-5">
           <Metric label="Settled untouched" value={`${b.touchless} of ${b.decided}`} sub={`${Math.round(b.touchless_rate * 100)}% touchless`} />
-          <Metric label="Exceptions it cleared" value={`${exc.resolved_by_agent} of ${exc.total}`} sub={exc.in_progress ? `${exc.in_progress} still in progress` : exc.median_hours !== null ? `median ${exc.median_hours}h to clear` : undefined} />
+          <Metric
+            label="Exceptions it cleared"
+            value={String(exc.resolved_by_agent)}
+            sub={[exc.in_progress && `${exc.in_progress} in progress`, needsJudgment && `${needsJudgment} need judgment`].filter(Boolean).join(" · ") || undefined}
+            title="Cleared: settled with no one in AP touching them. In progress: waiting on a vendor, a colleague or a delivery. Need judgment: handed to a person with a recommendation."
+          />
           <Metric label="AP time saved" value={`~${b.time_saved.hours}h`} sub={`${b.time_saved.minutes_per_exception} min per exception`} title={`Estimate. Assumes ${b.time_saved.assumption}.`} />
           <Metric label="Work done for you" value={String(workTotal)} sub={workBits.slice(0, 2).join(", ")} title={workBits.join(", ")} />
           <Metric label="Human touches" value={String(b.human_touches)} sub="approvals and decisions by people" />

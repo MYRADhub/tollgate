@@ -10,14 +10,14 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 - Video: _link_
 - Slides: _link_
 
-**Judging in five minutes:** open the live demo and follow the guided demo on the dashboard (nine steps). Load the inbox and watch the "While you were away" briefing fill in: within a minute the agent has found the PO an invoice forgot to quote, had its owner confirm it, and paid it; press **Fast-forward a day** (top right) and a backordered delivery arrives and another invoice pays. What is left are three decisions, each with the agent's recommendation. The thread to watch is BIS-2090, a forged invoice caught four independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, a PDF that Brightline's billing system did not produce (Tollgate's own fingerprint model), and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset.
+**Judging in five minutes:** open the live demo and follow the guided demo on the dashboard (nine steps). Load the inbox and watch the "While you were away" briefing fill in: within a minute the agent has found the PO an invoice forgot to quote, had its owner confirm it, and paid it; press **Fast-forward a day** (top right) and a backordered delivery arrives and another invoice pays. What is left for people are the decisions that need judgment, each with the agent's recommendation. The thread to watch is BIS-2090, a forged invoice caught four independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, a PDF that Brightline's billing system did not produce (Tollgate's own fingerprint model), and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset.
 
 | | |
 |---|---|
 | Money recovered in the demo | $2,434.20 under contracts (SLA credit, volume price, price cap) and $476.20 in credit memos from vendor statements |
 | Model cost | about $0.0033 per invoice on Vultr Serverless Inference (best-in-class AP teams: $2.78, Ardent Partners 2025) |
 | Evals on the real models | 133/133, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
-| Exceptions cleared with no one in AP touching them | 5 of 6 in the demo after one simulated day (the sixth waits on the vendor); 3 decisions left for people, each with a recommendation |
+| Exceptions cleared with no one in AP touching them | On the real models, after one simulated day: all 3 that someone inside the company could settle (missing PO, unordered fee, backorder); 2 still waiting on vendors; the 3 that need judgment (bank change, forged invoice, unknown vendor) handed over with a recommendation |
 | Our own model | Per-vendor document fingerprint: 0 false alarms on 70 held-out genuine invoices, 112 of 112 forgeries caught, including ones that copy the vendor's fonts and metadata (on generated invoice archives) |
 | Tests | 159 backend tests, 18 browser tests |
 
