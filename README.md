@@ -19,7 +19,7 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 | Evals on the real models | 133/133, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
 | Exceptions cleared with no one in AP touching them | On the real models, after one simulated day: all 3 that someone inside the company could settle (missing PO, unordered fee, backorder); 2 still waiting on vendors; the 3 that need judgment (bank change, forged invoice, unknown vendor) handed over with a recommendation |
 | Our own model | Per-vendor document fingerprint: 0 false alarms on 70 held-out genuine invoices, 112 of 112 forgeries caught, including ones that copy the vendor's fonts and metadata (on generated invoice archives) |
-| Tests | 175 backend tests, 20 browser tests (also run against the live deployment) |
+| Tests | 177 backend tests, 20 browser tests (also run against the live deployment) |
 
 ---
 
@@ -158,7 +158,7 @@ Every model call made while working an invoice is charged to it. On the real mod
 | Document fingerprint, our own model: no false alarm on 10 held-out genuine invoices and all 16 forgeries caught (7 vendors, deterministic) | 7/7 |
 | **Total** | **133/133** |
 
-Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 175 unit and integration tests and 20 browser tests (see Running locally).
+Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 177 unit and integration tests and 20 browser tests (see Running locally).
 
 ## Vultr services used
 
@@ -225,7 +225,7 @@ npm run dev -- --port 3100                   # proxies /api to http://127.0.0.1:
 
 Tests, from the repo root:
 
-- `npm test`: 175 backend unit and integration tests, then the frontend type check and lint.
+- `npm test`: 177 backend unit and integration tests, then the frontend type check and lint.
 - `npm run test:e2e`: 20 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, the exception agent and briefing, fast-forward, the fingerprint and what it learns from a controller, the self-playing "Show me", contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
 
 ## Deploying on Vultr

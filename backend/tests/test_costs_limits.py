@@ -30,14 +30,41 @@ def test_limiter_refusal_consumes_nothing():
     assert lim.used("global", 1) == 4
 
 
-def test_per_ip_limit_counts_documents(db, monkeypatch):
-    monkeypatch.setattr(api_mod.settings, "intake_per_ip_per_hour", 12)
+def test_per_ip_limit_counts_free_text_documents(db, monkeypatch):
+    monkeypatch.setattr(api_mod.settings, "intake_per_ip_per_hour", 2)
     c = TestClient(app)
+    pdf = c.get("/api/demo/inbox/0/file").content
     one = {"X-Forwarded-For": "203.0.113.5"}
-    assert c.post("/api/demo/inbox", json=list(range(10)), headers=one).status_code == 200
-    r = c.post("/api/demo/inbox", json=[0, 1, 2], headers=one)
+
+    def up(h):
+        return c.post("/api/invoices", files={"file": ("a.pdf", pdf, "application/pdf")}, headers=h).status_code
+
+    assert [up(one), up(one)] == [200, 200]
+    r = c.post("/api/invoices", files={"file": ("a.pdf", pdf, "application/pdf")}, headers=one)
     assert r.status_code == 429 and "per hour" in r.json()["detail"]
-    assert c.post("/api/demo/inbox", json=[0], headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 200
+    assert up({"X-Forwarded-For": "198.51.100.7"}) == 200
+
+
+def test_the_guided_demo_can_be_replayed_without_hitting_the_visitor_limit(db, monkeypatch):
+    monkeypatch.setattr(api_mod.settings, "intake_per_ip_per_hour", 2)
+    c = TestClient(app)
+    one = {"X-Forwarded-For": "203.0.113.6"}
+    for _ in range(3):
+        assert c.post("/api/demo/inbox", json=list(range(5)), headers=one).status_code == 200
+        assert c.post("/api/demo/statements", headers=one).status_code == 200
+    assert c.post("/api/demo/billing-switch/1", headers=one).status_code == 200
+    # the visitor's free-text allowance is untouched by all that
+    assert c.post("/api/demo/inquiry", json={"sender": "a@b.example", "subject": "Hi", "body": "When will we be paid?"}, headers=one).status_code == 200
+
+
+def test_the_guided_demo_still_counts_against_the_global_cap(db, monkeypatch):
+    monkeypatch.setattr(api_mod.settings, "intake_global_per_hour", 6)
+    c = TestClient(app)
+    assert c.post("/api/demo/inbox", json=list(range(5)), headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 200
+    r = c.post("/api/demo/inbox", json=[0, 1], headers={"X-Forwarded-For": "198.51.100.8"})
+    assert r.status_code == 429 and "busy" in r.json()["detail"]
+    assert c.post("/api/demo/billing-switch/1", headers={"X-Forwarded-For": "198.51.100.9"}).status_code == 200
+    assert c.post("/api/demo/billing-switch/2").status_code == 429
 
 
 def test_resets_are_limited_per_visitor(db, monkeypatch):

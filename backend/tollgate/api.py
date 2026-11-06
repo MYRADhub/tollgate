@@ -113,6 +113,13 @@ def _rate_limit(request: Request, units: int = 1, *, arbitrary: bool = False) ->
             raise HTTPException(503, "The demo's model budget is nearly used up, so new uploads are paused. The guided demo still works.")
 
 
+def _guided_limit(units: int = 1) -> None:
+    """The guided demo's own fixed documents and scripted replies: counted against the global cap only, so
+    a visitor can replay the whole story without running out. Free text keeps the per-visitor limit."""
+    if not limiter.take([("global", settings.intake_global_per_hour)], units):
+        raise HTTPException(429, "The public demo is busy right now. Try again in a few minutes.")
+
+
 def j(x):
     if isinstance(x, Decimal):
         return float(x)
@@ -867,7 +874,7 @@ def demo_statement_load(request: Request, indexes: list[int] | None = None):
 
     items = statements.demo_statements()
     chosen = [items[i] for i in (indexes if indexes is not None else range(len(items))) if 0 <= i < len(items)]
-    _rate_limit(request, max(len(chosen), 1))
+    _guided_limit(max(len(chosen), 1))
     with session_scope() as s:
         return {"ids": [statements.ingest(s, pdf, name, source="demo", actor="email:vendor").id for name, _t, _e, pdf in chosen]}
 
@@ -978,7 +985,7 @@ def demo_load(request: Request, indexes: list[int] | None = None):
 
     items = demo_inbox()
     chosen = [items[i] for i in (indexes or range(len(items))) if 0 <= i < len(items)]
-    _rate_limit(request, max(len(chosen), 1))
+    _guided_limit(max(len(chosen), 1))
     ids = []
     with session_scope() as s:
         for k, d in enumerate(chosen):
@@ -1024,7 +1031,7 @@ def demo_billing_switch(step: int, request: Request):
     confirms it, the model learns the layout and the second passes."""
     if step not in (1, 2):
         raise HTTPException(404)
-    _rate_limit(request)
+    _guided_limit()
     from .seed import billing_switch
 
     name, pdf = billing_switch(step)
@@ -1064,7 +1071,7 @@ def demo_clock(body: ClockBody, request: Request):
 def demo_vendor_reply(invoice_id: str, request: Request):
     """Play the vendor: reply to the agent's email with a corrected invoice.
     With Gmail connected, a real reply to the agent's email does the same."""
-    _rate_limit(request)
+    _guided_limit()
     from email.message import EmailMessage as Mime
     from email.utils import make_msgid
 
