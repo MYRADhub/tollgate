@@ -29,6 +29,7 @@ services:
     command: ["python", "-m", "tollgate.worker"]
     environment:
       TOLLGATE_LOCAL_STORAGE_DIR: /data/storage
+      TOLLGATE_IDLE_RESET_S: "7200"  # an untouched shared demo returns to its start after 2 hours
     volumes: [app_data:/data]
     depends_on: [api]
     mem_limit: 1g

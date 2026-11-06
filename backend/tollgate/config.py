@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # after the previous one: a judge mid-demo is not reset by the next.
     reset_cooldown_s: int = 600
     resets_per_ip_per_hour: int = 12
+    # A shared demo left alone this long goes back to its starting state, so the next
+    # visitor finds it fresh (0 = never). Set for the public deployment in docker-compose.
+    idle_reset_s: int = 0
+    # Lets our own browser suite reset the live demo past the cooldown (empty = no bypass).
+    demo_admin_key: str = ""
     # Arbitrary uploads stop this close to the inference cap, so the guided demo
     # keeps real model output for the last few dollars.
     public_reserve_usd: float = 3.0

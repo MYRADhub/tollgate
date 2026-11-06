@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import secrets
 import time
 from collections import deque
 from contextlib import asynccontextmanager
@@ -1008,13 +1009,15 @@ def demo_file(index: int):
 def demo_reset(request: Request):
     if not settings.demo_mode:
         raise HTTPException(403)
-    last = _last_reset()
+    key = request.headers.get("x-demo-key", "")
+    admin = bool(settings.demo_admin_key) and secrets.compare_digest(key.encode(), settings.demo_admin_key.encode())
+    last = None if admin else _last_reset()
     if last and settings.reset_cooldown_s:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
         if 0 <= age < settings.reset_cooldown_s:
             wait = int((settings.reset_cooldown_s - age) // 60) + 1
             raise HTTPException(429, f"Someone reset the shared demo {int(age // 60)} min ago, so it is already fresh. Resets are allowed again in {wait} min.")
-    if not limiter.take([(f"reset:{client_ip(request)}", settings.resets_per_ip_per_hour)]):
+    if not admin and not limiter.take([(f"reset:{client_ip(request)}", settings.resets_per_ip_per_hour)]):
         raise HTTPException(429, "Too many resets from this visitor; try again later.")
     from .seed import reset_and_seed
 

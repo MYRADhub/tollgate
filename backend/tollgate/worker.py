@@ -10,13 +10,13 @@ import logging
 import signal
 import time
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from . import agent, mailer, paymentrun, pipeline
 from .config import get_settings
 from .db import init_db, session_scope
 from .llm import attribute, flush_spend
-from .models import Invoice, Job, utcnow
+from .models import AuditEvent, Invoice, Job, utcnow
 
 log = logging.getLogger("tollgate.worker")
 _stop = False
@@ -127,6 +127,39 @@ def drain(max_rounds: int = 50) -> None:
             return
 
 
+class IdleReset:
+    """Resets the shared demo once nothing has happened in it for idle_s seconds of real time.
+    Activity is any new audit event; the time is the worker's own monotonic clock, because
+    audit timestamps move with the demo's fast-forward. A demo already fresh is left alone."""
+
+    def __init__(self, idle_s: int) -> None:
+        self.idle_s = idle_s
+        self.last_id: int | None = None
+        self.since = 0.0
+
+    def check(self, now: float) -> bool:
+        if self.idle_s <= 0:
+            return False
+        with session_scope() as s:
+            top = s.execute(select(func.max(AuditEvent.id))).scalar()
+            if top != self.last_id:
+                self.last_id, self.since = top, now
+                return False
+            if now - self.since < self.idle_s:
+                return False
+            latest = s.execute(select(AuditEvent.kind).order_by(AuditEvent.id.desc()).limit(1)).scalar()
+            if latest is None or latest == "seed":
+                return False
+            from . import clock
+            from .seed import reset_and_seed
+
+            reset_and_seed(s)
+            clock.forget()
+        log.info("demo idle for %ds: reset to its starting state", self.idle_s)
+        self.last_id, self.since = None, now
+        return True
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     init_db()
@@ -139,6 +172,8 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _sig)
     signal.signal(signal.SIGINT, _sig)
     last_poll = 0.0
+    idle = IdleReset(cfg.idle_reset_s if cfg.demo_mode else 0)
+    last_idle_check = 0.0
     log.info("worker started (mail %s)", "on" if cfg.mail_enabled else "off")
     while not _stop:
         did = run_due_jobs()
@@ -151,6 +186,12 @@ def main() -> None:
                     log.info("mailbox: %d new message(s)", n)
             except Exception:
                 log.exception("mail poll failed")
+        if time.monotonic() - last_idle_check >= 60:
+            last_idle_check = time.monotonic()
+            try:
+                idle.check(last_idle_check)
+            except Exception:
+                log.exception("idle reset check failed")
         if not did:
             time.sleep(1.0)
 

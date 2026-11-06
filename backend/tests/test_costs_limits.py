@@ -126,3 +126,21 @@ def test_reset_cooldown_protects_a_visitor_mid_demo(db, monkeypatch):
     assert r.status_code == 429 and "already fresh" in r.json()["detail"]
     monkeypatch.setattr(get_settings(), "reset_cooldown_s", 0)
     assert c.post("/api/demo/reset").status_code == 200
+
+
+def test_the_demo_key_skips_the_reset_cooldown_and_visitor_limit(db, monkeypatch):
+    monkeypatch.setattr(api_mod.settings, "reset_cooldown_s", 600)
+    monkeypatch.setattr(api_mod.settings, "resets_per_ip_per_hour", 1)
+    monkeypatch.setattr(api_mod.settings, "demo_admin_key", "k3y-for-tests")
+    c = TestClient(app)
+    good = {"X-Demo-Key": "k3y-for-tests", "X-Forwarded-For": "203.0.113.20"}
+    assert [c.post("/api/demo/reset", headers=good).status_code for _ in range(3)] == [200, 200, 200]
+    assert c.post("/api/demo/reset", headers={"X-Demo-Key": "wrong", "X-Forwarded-For": "203.0.113.21"}).status_code == 429
+    assert c.post("/api/demo/reset", headers={"X-Forwarded-For": "203.0.113.22"}).status_code == 429
+
+
+def test_no_demo_key_configured_means_no_bypass(db, monkeypatch):
+    monkeypatch.setattr(api_mod.settings, "reset_cooldown_s", 600)
+    monkeypatch.setattr(api_mod.settings, "demo_admin_key", "")
+    c = TestClient(app)
+    assert c.post("/api/demo/reset", headers={"X-Demo-Key": ""}).status_code == 429

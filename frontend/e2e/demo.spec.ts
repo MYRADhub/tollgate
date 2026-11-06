@@ -12,6 +12,13 @@ async function settle(request: APIRequestContext) {
   throw new Error("agent did not settle");
 }
 
+// Against the live deployment, E2E_DEMO_KEY lets the suite reset past the shared demo's cooldown.
+async function reset(request: APIRequestContext) {
+  const key = process.env.E2E_DEMO_KEY;
+  const r = await request.post(`${API}/api/demo/reset`, key ? { headers: { "X-Demo-Key": key } } : {});
+  if (!r.ok()) throw new Error(`demo reset refused: ${r.status()} ${await r.text()}`);
+}
+
 async function invoiceId(request: APIRequestContext, number: string) {
   const rows = await (await request.get(`${API}/api/invoices`)).json();
   const r = rows.find((x: { number: string }) => x.number === number);
@@ -25,7 +32,7 @@ async function actAs(page: Page, name: string) {
 
 test.describe.serial("guided demo, end to end", () => {
   test.beforeAll(async ({ request }) => {
-    await request.post(`${API}/api/demo/reset`);
+    await reset(request);
   });
 
   test("dashboard starts empty and the guided demo loads the inbox", async ({ page, request }) => {
@@ -248,7 +255,7 @@ test.describe.serial("guided demo, end to end", () => {
   });
 
   test("rejecting a payment asks for a reason in a dialog", async ({ page, request }) => {
-    await request.post(`${API}/api/demo/reset`);
+    await reset(request);
     await request.post(`${API}/api/demo/inbox`, { data: [3] });
     await settle(request);
     await page.goto("/approvals");
@@ -278,7 +285,7 @@ test.describe.serial("guided demo, end to end", () => {
 test.describe("show me", () => {
   test("plays the whole story by itself from an empty demo", async ({ page, request }) => {
     test.setTimeout(480_000);
-    await request.post(`${API}/api/demo/reset`);
+    await reset(request);
     await page.goto("/");
     await page.getByRole("button", { name: "Show me in 2 minutes" }).click();
     const story = page.getByTestId("story");
@@ -295,7 +302,7 @@ test.describe("show me", () => {
 
 test.describe("mobile @mobile", () => {
   test("@mobile the queue renders as cards and invoices open", async ({ page, request }) => {
-    await request.post(`${API}/api/demo/reset`);
+    await reset(request);
     await request.post(`${API}/api/demo/inbox`, { data: [2] });
     await settle(request);
     await page.goto("/");
