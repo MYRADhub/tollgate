@@ -135,12 +135,98 @@ def review(s: Session, inv: Invoice) -> CriticReview:
     return rv
 
 
+CENT = Decimal("0.01")
+
+
+def _key(code: str, ev: dict | None) -> tuple:
+    ev = ev or {}
+    return (code, ev.get("term_id"), ev.get("line"), ev.get("period"))
+
+
+def recompute(s: Session, inv: Invoice) -> tuple[Decimal, list[str]]:
+    """Work out what to pay from the source records, not from the findings on the invoice: the approved
+    contract terms, our service measurements, the invoice lines and the approved credit memos. Then
+    compare each deduction claimed with what those records support. Returns (amount to pay, problems)."""
+    from . import contracts, statements
+    from .agent import recoveries
+    from .models import VendorCredit
+    from .pipeline import vendor_terms
+
+    total = inv.total or Decimal(0)
+    problems: list[str] = []
+    terms = vendor_terms(s, inv.vendor_id)
+    metrics = {(m.period, m.metric): m.value for m in s.execute(select(ServiceMetric).where(ServiceMetric.vendor_id == inv.vendor_id)).scalars()} if inv.vendor_id else {}
+    tax_rate = (inv.tax / inv.subtotal).quantize(Decimal("0.0001")) if inv.tax and inv.subtotal else Decimal(0)
+    lines = [contracts.LineIn(ln.position, ln.sku, ln.description, ln.quantity, ln.unit_price, ln.amount) for ln in inv.lines]
+    # A line disputed for exceeding its PO price goes back to the vendor rather than being deducted.
+    disputed = {f.evidence.get("line") for f in inv.findings if f.code == "PRICE_VARIANCE" and f.evidence}
+    # A recovery a person waived (resolved) is their decision, not an omission.
+    waived = {_key(f.code, f.evidence) for f in inv.findings if f.severity == Severity.recover and f.resolved and f.code != "VENDOR_CREDIT"}
+    owed = {_key(r.code, r.evidence): r for r in (contracts.apply_terms(lines, inv.invoice_date, terms, metrics, tax_rate) if terms and lines else [])
+            if r.evidence.get("line") not in disputed and _key(r.code, r.evidence) not in waived}
+
+    claimed = recoveries(inv)
+    deduct = Decimal(0)
+    seen = set()
+    for f in claimed:
+        amt = f.amount_at_risk or Decimal(0)
+        if f.code == "VENDOR_CREDIT":
+            cr = s.get(VendorCredit, (f.evidence or {}).get("credit_id"))
+            if cr is None or cr.vendor_id != inv.vendor_id or cr.status not in ("approved", "applied"):
+                problems.append(f"{f.title}: no approved credit memo from this vendor supports {amt:,.2f}.")
+                continue
+            # Two waiting invoices can both show one credit; settle_credits() cuts each to what is
+            # unused when the payment is made, so a claim above that is settled, not wrong.
+            left = statements.credit_left(s, cr, exclude_invoice=inv.id)
+            deduct += min(amt, left)
+            continue
+        k = _key(f.code, f.evidence)
+        r = owed.get(k)
+        if r is None:
+            problems.append(f"{f.title}: {amt:,.2f} deducted, but no approved contract term supports it on these lines and measurements.")
+            continue
+        seen.add(k)
+        if abs(amt - r.amount) > CENT:
+            problems.append(f"{f.title}: {amt:,.2f} deducted; the contract term gives {r.amount:,.2f}.")
+        deduct += r.amount
+    for k, r in owed.items():
+        if k not in seen:
+            problems.append(f"{r.title}: {r.amount:,.2f} is owed under {r.evidence.get('contract', 'the contract')} but not deducted.")
+            deduct += r.amount
+    return total - deduct, problems
+
+
+def _credit_settlement(s: Session, inv: Invoice) -> Decimal:
+    """How much of the credit deductions on this invoice settle_credits() will cut at payment."""
+    from . import statements
+    from .agent import recoveries
+    from .models import VendorCredit
+
+    cut = Decimal(0)
+    for f in recoveries(inv):
+        if f.code != "VENDOR_CREDIT":
+            continue
+        cr = s.get(VendorCredit, (f.evidence or {}).get("credit_id"))
+        if cr is not None and cr.vendor_id == inv.vendor_id and cr.status in ("approved", "applied"):
+            cut += max((f.amount_at_risk or Decimal(0)) - statements.credit_left(s, cr, exclude_invoice=inv.id), Decimal(0))
+    return cut
+
+
 def offline_review(s: Session, inv: Invoice) -> CriticReview:
-    """Without inference (tests, outages), recompute the proposal deterministically."""
+    """Without inference (tests, outages): recompute the payment from the source records and compare it,
+    deduction by deduction, with the proposal. Any unsupported, wrong or missing deduction is "disagree"."""
     proposal = proposal_for(inv)
-    rv = CriticReview(invoice_id=inv.id, proposal=proposal, verdict="agree", summary="Recomputed from the approved contract terms (offline check).",
-                      points=[], independent_amount=Decimal(proposal["pay"]), model="offline")
+    independent, problems = recompute(s, inv)
+    pay = Decimal(proposal["pay"]) + _credit_settlement(s, inv)
+    if not problems and abs(independent - pay) > CENT:
+        problems.append(f"The proposal pays {pay:,.2f}; the records give {independent:,.2f}.")
+    verdict = "disagree" if problems else "agree"
+    summary = (f"Recomputed from the approved terms, measurements and credits: pay {independent:,.2f}, as proposed." if verdict == "agree"
+               else f"Recomputed from the approved terms, measurements and credits: pay {independent:,.2f}, not {pay:,.2f} as proposed.")
+    rv = CriticReview(invoice_id=inv.id, proposal=proposal, verdict=verdict, summary=summary,
+                      points=[p[:400] for p in problems][:5], independent_amount=independent.quantize(CENT), model="offline")
     s.add(rv)
     s.flush()
-    audit.record(s, actor="critic", kind="critic:agree", invoice_id=inv.id, summary=f"Critic agree (offline recomputation): pay {Decimal(proposal['pay']):,.2f}")
+    audit.record(s, actor="critic", kind=f"critic:{verdict}", invoice_id=inv.id, summary=f"Critic {verdict} (offline recomputation): {summary}",
+                 detail={"points": rv.points, "independent_amount": str(rv.independent_amount), "model": "offline"})
     return rv
