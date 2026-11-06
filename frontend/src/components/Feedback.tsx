@@ -6,6 +6,7 @@ import { cx } from "./ui";
 
 type Tone = "success" | "error" | "info";
 type Toast = { id: number; tone: Tone; title: string; body?: string };
+const MAX_TOASTS = 4;
 
 type DialogState =
   | null
@@ -89,8 +90,18 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
 
   const toast = useCallback((tone: Tone, title: string, body?: string) => {
     const id = ++seq.current;
-    setToasts((t) => [...t.slice(-3), { id, tone, title, body }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === "error" ? 7000 : 4500);
+    setToasts((t) => {
+      // An error already on screen is not stacked again when the same action fails twice.
+      if (tone === "error" && t.some((x) => x.tone === "error" && x.title === title && x.body === body)) return t;
+      const next = [...t, { id, tone, title, body }];
+      while (next.length > MAX_TOASTS) {
+        // Errors wait to be read; the oldest passing message makes room first.
+        const i = next.slice(0, -1).findIndex((x) => x.tone !== "error");
+        next.splice(i === -1 ? 0 : i, 1);
+      }
+      return next;
+    });
+    if (tone !== "error") setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
   }, []);
 
   const confirm = useCallback<Ctx["confirm"]>(
@@ -133,6 +144,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
+            role={t.tone === "error" ? "alert" : "status"}
             className={cx(
               "pointer-events-auto flex items-start gap-2.5 rounded-xl border bg-white p-3 shadow-lg",
               t.tone === "error" ? "border-rose-200" : t.tone === "success" ? "border-emerald-200" : "border-slate-200",

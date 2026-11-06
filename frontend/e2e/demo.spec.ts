@@ -300,6 +300,35 @@ test.describe("show me", () => {
   });
 });
 
+test("an error stays until dismissed, is not repeated, and is not pushed out by later messages", async ({ page }) => {
+  let fail = true;
+  await page.route("**/api/demo/statements", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return fail
+      ? route.fulfill({ status: 500, json: { detail: "Statements are down for the test" } })
+      : route.fulfill({ status: 200, json: { ok: true } });
+  });
+  await page.goto("/statements");
+  const load = page.getByRole("button", { name: "Load demo statements" });
+  const error = page.getByRole("alert").filter({ hasText: "Could not load" });
+  await load.click();
+  await expect(error).toContainText("Statements are down for the test");
+  await load.click();
+  await page.waitForTimeout(8000);
+  await expect(error).toHaveCount(1);
+
+  fail = false;
+  for (let i = 0; i < 4; i++) {
+    await load.click();
+    await expect(load).toBeEnabled();
+  }
+  await expect(page.getByRole("status").filter({ hasText: "Two vendor statements arrived" })).toHaveCount(3);
+  await expect(error).toHaveCount(1);
+
+  await error.getByRole("button", { name: "Dismiss" }).click();
+  await expect(error).toHaveCount(0);
+});
+
 test.describe("mobile @mobile", () => {
   test("@mobile the queue renders as cards and invoices open", async ({ page, request }) => {
     await reset(request);
