@@ -14,3 +14,6 @@ out/
 .DS_Store
 .pytest_cache/
 backend/demo_invoices/
+
+# knowledge graph output (graphify)
+graphify-out/
