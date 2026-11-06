@@ -21,6 +21,8 @@ from .models import Contract, CriticReview, Invoice, PurchaseOrder, ServiceMetri
 
 log = logging.getLogger(__name__)
 
+CENT = Decimal("0.01")
+
 SYSTEM = """You are the Critic in an accounts-payable team's agent system. Another component made the payment
 proposal below; you did not. Your job is to find what is wrong with it before money moves.
 
@@ -101,6 +103,8 @@ PROPOSAL UNDER REVIEW:
 
 
 def review(s: Session, inv: Invoice) -> CriticReview:
+    """The model's second opinion, with the offline recomputation as a floor under it: the model can
+    never approve a payment the source records contradict. It can still raise concerns the records miss."""
     from .llm import chat_json
 
     cfg = get_settings()
@@ -112,30 +116,46 @@ def review(s: Session, inv: Invoice) -> CriticReview:
         if verdict not in ("agree", "concerns", "disagree"):
             raise ValueError(f"bad verdict {verdict!r}")
         try:
-            independent = Decimal(str(d.get("independent_amount"))).quantize(Decimal("0.01"))
+            independent = Decimal(str(d.get("independent_amount"))).quantize(CENT)
         except (InvalidOperation, TypeError):
             independent = None
+        points = [str(p)[:400] for p in (d.get("points") or [])]
         # A numeric cross-check the model cannot talk around: if its own figure is off by more than
         # a cent from the proposal, it cannot call that "agree".
-        if verdict == "agree" and independent is not None and abs(independent - Decimal(proposal["pay"])) > Decimal("0.01"):
+        if verdict == "agree" and independent is not None and abs(independent - Decimal(proposal["pay"])) > CENT:
             verdict = "concerns"
-            d.setdefault("points", []).append(f"Critic's own figure {independent:,.2f} differs from the proposal {Decimal(proposal['pay']):,.2f}.")
-        rv = CriticReview(invoice_id=inv.id, proposal=proposal, verdict=verdict, summary=str(d.get("summary", ""))[:1000],
-                          points=[str(p)[:400] for p in (d.get("points") or [])][:5], independent_amount=independent, model=cfg.model_critic)
+            points.append(f"Critic's own figure {independent:,.2f} differs from the proposal {Decimal(proposal['pay']):,.2f}.")
+        summary = str(d.get("summary", ""))[:1000]
     except Exception as e:
         log.exception("critic unavailable")
         # No second opinion is not a pass: a person looks instead.
-        rv = CriticReview(invoice_id=inv.id, proposal=proposal, verdict="unavailable",
-                          summary=f"The critic could not review this payment ({type(e).__name__}); a controller reviews it instead.",
-                          points=[], independent_amount=None, model=cfg.model_critic)
+        verdict, independent, points = "unavailable", None, []
+        summary = f"The critic could not review this payment ({type(e).__name__}); a controller reviews it instead."
+    model_verdict, model_amount, model_name = verdict, independent, cfg.model_critic
+    recomputed = None
+    try:
+        recomputed, problems = check(s, inv, proposal)
+    except Exception:
+        log.exception("critic recomputation failed")
+        problems = None
+        if verdict == "agree":
+            verdict = "concerns"
+            points.append("The recomputation from the source records could not run; a person checks the amount.")
+    if problems and verdict != "disagree":
+        verdict, independent, model_name = "disagree", recomputed.quantize(CENT), f"{cfg.model_critic} + recompute"
+        summary = (f"Recomputed from the approved terms, measurements and credits: pay {recomputed:,.2f}, "
+                   f"not {Decimal(proposal['pay']):,.2f} as proposed. This overrides the model's verdict ({model_verdict}).")
+        points = [f"Recomputation: {p}" for p in problems] + points
+    rv = CriticReview(invoice_id=inv.id, proposal=proposal, verdict=verdict, summary=summary,
+                      points=[p[:400] for p in points][:5], independent_amount=independent, model=model_name)
     s.add(rv)
     s.flush()
-    audit.record(s, actor="critic", kind=f"critic:{rv.verdict}", invoice_id=inv.id,
-                 summary=f"Critic {rv.verdict}: {rv.summary}", detail={"points": rv.points, "independent_amount": str(rv.independent_amount), "model": rv.model})
+    audit.record(s, actor="critic", kind=f"critic:{rv.verdict}", invoice_id=inv.id, summary=f"Critic {rv.verdict}: {rv.summary}",
+                 detail={"points": rv.points, "independent_amount": str(rv.independent_amount), "model": rv.model,
+                         "model_verdict": model_verdict, "model_amount": str(model_amount),
+                         "recomputed_amount": str(recomputed.quantize(CENT)) if recomputed is not None else None,
+                         "recompute_problems": problems})
     return rv
-
-
-CENT = Decimal("0.01")
 
 
 def _key(code: str, ev: dict | None) -> tuple:
@@ -212,14 +232,22 @@ def _credit_settlement(s: Session, inv: Invoice) -> Decimal:
     return cut
 
 
-def offline_review(s: Session, inv: Invoice) -> CriticReview:
-    """Without inference (tests, outages): recompute the payment from the source records and compare it,
-    deduction by deduction, with the proposal. Any unsupported, wrong or missing deduction is "disagree"."""
-    proposal = proposal_for(inv)
+def check(s: Session, inv: Invoice, proposal: dict) -> tuple[Decimal, list[str]]:
+    """Recompute the payment and compare it with the proposal, allowing for the credit cuts
+    settle_credits() makes at payment. Returns (amount to pay, problems); no problems means they match."""
     independent, problems = recompute(s, inv)
     pay = Decimal(proposal["pay"]) + _credit_settlement(s, inv)
     if not problems and abs(independent - pay) > CENT:
         problems.append(f"The proposal pays {pay:,.2f}; the records give {independent:,.2f}.")
+    return independent, problems
+
+
+def offline_review(s: Session, inv: Invoice) -> CriticReview:
+    """Without inference (tests, outages): recompute the payment from the source records and compare it,
+    deduction by deduction, with the proposal. Any unsupported, wrong or missing deduction is "disagree"."""
+    proposal = proposal_for(inv)
+    independent, problems = check(s, inv, proposal)
+    pay = Decimal(proposal["pay"]) + _credit_settlement(s, inv)
     verdict = "disagree" if problems else "agree"
     summary = (f"Recomputed from the approved terms, measurements and credits: pay {independent:,.2f}, as proposed." if verdict == "agree"
                else f"Recomputed from the approved terms, measurements and credits: pay {independent:,.2f}, not {pay:,.2f} as proposed.")

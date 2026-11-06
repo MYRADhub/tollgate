@@ -19,7 +19,7 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 | Evals on the real models | 133/133, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
 | Exceptions cleared with no one in AP touching them | On the real models, after one simulated day: all 3 that someone inside the company could settle (missing PO, unordered fee, backorder); 2 still waiting on vendors; the 3 that need judgment (bank change, forged invoice, unknown vendor) handed over with a recommendation |
 | Our own model | Per-vendor document fingerprint: 0 false alarms on 70 held-out genuine invoices, 112 of 112 forgeries caught, including ones that copy the vendor's fonts and metadata (on generated invoice archives) |
-| Tests | 169 backend tests, 20 browser tests (also run against the live deployment) |
+| Tests | 175 backend tests, 20 browser tests (also run against the live deployment) |
 
 ---
 
@@ -77,7 +77,7 @@ flowchart LR
 3. **Is it really the vendor's document?** Tollgate's own model (below) compares how the PDF was made with how this vendor's invoices are always made.
 4. **Controls, then the contract.** Twenty-three checks in plain Python (vendor master, lookalike names, tax ID, verified bank account, duplicates, split billing, arithmetic, PO, receipts, currency, terms). Then the vendor's approved contract terms are applied by code: service credits against our own uptime monitoring, volume prices, price-increase caps. Each finding carries its evidence and the amount at risk or owed.
 5. **Investigate, then plan.** For an exception, the reasoning model first calls read-only tools one at a time (the vendor's open POs; ordered, received and billed quantities; earlier answers; vendor history), then proposes actions and drafts the messages. Clean invoices take a fixed path: there is nothing to judge.
-6. **Critic.** Before any payment with deductions or above the auto-pay limit, a different model recomputes what should be paid from the invoice, PO, receipts, contract text and measurements. If its own figure differs from the proposal it cannot agree. Disagreement sends the payment to the CFO; concerns, to the controller.
+6. **Critic.** Before any payment with deductions or above the auto-pay limit, a different model recomputes what should be paid from the invoice, PO, receipts, contract text and measurements. If its own figure differs from the proposal it cannot agree. Code then recomputes the payment from the approved contract terms, measurements and credit memos; if the records contradict the proposal, the verdict is "disagree" whatever the model said, so the model can never approve what the arithmetic rejects. Disagreement sends the payment to the CFO; concerns, to the controller.
 7. **Policy guard.** Code executes each action or refuses it: no payment while a blocking finding is open, only to the vendor-master account, only with the approvals the amount (or the critic) requires; emails only to the contact on file; blocking findings clear only on new evidence or a person; a rejection is final. Refusals are logged and the model re-plans.
 8. **People.** Approvals, bank-change callbacks with two approvers, contract terms the model proposed, overrides with a justification.
 9. **Payment run.** Pays what is due within the week, then spends cash above the floor on early-payment discounts by annualised return; the controller approves the run and downloads the bank batch file.
@@ -158,7 +158,7 @@ Every model call made while working an invoice is charged to it. On the real mod
 | Document fingerprint, our own model: no false alarm on 10 held-out genuine invoices and all 16 forgeries caught (7 vendors, deterministic) | 7/7 |
 | **Total** | **133/133** |
 
-Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 132 unit and integration tests and 16 browser tests (see Running locally).
+Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 175 unit and integration tests and 20 browser tests (see Running locally).
 
 ## Vultr services used
 
@@ -225,7 +225,7 @@ npm run dev -- --port 3100                   # proxies /api to http://127.0.0.1:
 
 Tests, from the repo root:
 
-- `npm test`: 169 backend unit and integration tests, then the frontend type check and lint.
+- `npm test`: 175 backend unit and integration tests, then the frontend type check and lint.
 - `npm run test:e2e`: 20 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, the exception agent and briefing, fast-forward, the fingerprint and what it learns from a controller, the self-playing "Show me", contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, and mobile.
 
 ## Deploying on Vultr
