@@ -53,6 +53,162 @@ Paying a vendor invoice looks simple and is not. Before a company pays, someone 
 | A vendor sends a statement of account | Explains the gap between their balance and ours to the cent: asks for invoices we never received, sends remittance details for payments they never applied, proposes claiming credit memos we never took, and holds any invoice in our books that the vendor's own statement does not list |
 | A vendor emails "when will we be paid?" or "why were we short-paid?" | Answers from the ledger, for that vendor's own invoices only, quoting the contract deduction; refuses bank changes by email and tells a lookalike sender nothing |
 
+## Screenshots
+
+From the live demo, after the guided story has run on the real models.
+
+**Dashboard after one day: the guided demo and the briefing of what the agent settled, cleared and left for people.**
+
+<img src="docs/screenshots/01-dashboard-briefing.webp" alt="Dashboard after one day: the guided demo and the briefing of what the agent settled, cleared and left for people" width="900">
+
+**A forged invoice caught four ways: hidden AI instructions, a new bank account, a fingerprint that does not match the vendor's billing system, and absence from the vendor's own statement.**
+
+<img src="docs/screenshots/20-invoice-BIS-2090.webp" alt="A forged invoice caught four ways: hidden AI instructions, a new bank account, a fingerprint that does not match the vendor's billing system, and absence from the vendor's own statement" width="900">
+
+**An SLA credit taken under the contract clause, confirmed by the critic, with remittance advice.**
+
+<img src="docs/screenshots/20-invoice-PNS-55120.webp" alt="An SLA credit taken under the contract clause, confirmed by the critic, with remittance advice" width="900">
+
+**A lookalike sender asks for bank details and gets nothing.**
+
+<img src="docs/screenshots/53-flow-vendor-question-impersonation-refused.webp" alt="A lookalike sender asks for bank details and gets nothing" width="900">
+
+<details>
+<summary>Pages (9)</summary>
+
+**Approvals**
+
+<img src="docs/screenshots/02-approvals.webp" alt="Approvals" width="900">
+
+**Payment runs**
+
+<img src="docs/screenshots/03-payment-runs.webp" alt="Payment runs" width="900">
+
+**Contract terms**
+
+<img src="docs/screenshots/04-contracts.webp" alt="Contract terms" width="900">
+
+**Statement reconciliation**
+
+<img src="docs/screenshots/05-statement-reconciliation.webp" alt="Statement reconciliation" width="900">
+
+**Vendor questions**
+
+<img src="docs/screenshots/06-vendor-questions.webp" alt="Vendor questions" width="900">
+
+**Vendors and document fingerprints**
+
+<img src="docs/screenshots/07-vendors-and-fingerprints.webp" alt="Vendors and document fingerprints" width="900">
+
+**Hash-chained audit trail**
+
+<img src="docs/screenshots/08-audit-trail.webp" alt="Hash-chained audit trail" width="900">
+
+**Attack lab**
+
+<img src="docs/screenshots/09-attack-lab.webp" alt="Attack lab" width="900">
+
+**How it works**
+
+<img src="docs/screenshots/10-how-it-works.webp" alt="How it works" width="900">
+
+</details>
+
+<details>
+<summary>Invoices (5)</summary>
+
+**OC-7720: volume price owed under the contract**
+
+<img src="docs/screenshots/20-invoice-OC-7720.webp" alt="OC-7720: volume price owed under the contract" width="900">
+
+**BIS-2077: overbilled, replaced by a corrected invoice**
+
+<img src="docs/screenshots/20-invoice-BIS-2077.webp" alt="BIS-2077: overbilled, replaced by a corrected invoice" width="900">
+
+**GE-5561: paid when the backorder arrived, net of the price cap**
+
+<img src="docs/screenshots/20-invoice-GE-5561.webp" alt="GE-5561: paid when the backorder arrived, net of the price cap" width="900">
+
+**GE-5570: no PO number; the agent found it by asking colleagues**
+
+<img src="docs/screenshots/20-invoice-GE-5570.webp" alt="GE-5570: no PO number; the agent found it by asking colleagues" width="900">
+
+**VCS-10488: bank change approved by two people after a callback**
+
+<img src="docs/screenshots/20-invoice-VCS-10488.webp" alt="VCS-10488: bank change approved by two people after a callback" width="900">
+
+</details>
+
+<details>
+<summary>Moments in the guided demo (13)</summary>
+
+**The guided demo loads the inbox**
+
+<img src="docs/screenshots/40-flow-guided-demo-loads-inbox.webp" alt="The guided demo loads the inbox" width="900">
+
+**SLA credit checked by the critic**
+
+<img src="docs/screenshots/41-flow-sla-credit-checked-by-critic.webp" alt="SLA credit checked by the critic" width="900">
+
+**Hidden AI instructions quarantined**
+
+<img src="docs/screenshots/42-flow-hidden-ai-instructions-quarantined.webp" alt="Hidden AI instructions quarantined" width="900">
+
+**Vendor fingerprint models and how they were tested**
+
+<img src="docs/screenshots/43-flow-vendor-fingerprint-models.webp" alt="Vendor fingerprint models and how they were tested" width="900">
+
+**The controller approves a payment**
+
+<img src="docs/screenshots/44-flow-controller-approves-payment.webp" alt="The controller approves a payment" width="900">
+
+**A corrected invoice re-read and paid**
+
+<img src="docs/screenshots/45-flow-corrected-invoice-reread-and-paid.webp" alt="A corrected invoice re-read and paid" width="900">
+
+**The agent asks colleagues**
+
+<img src="docs/screenshots/46-flow-agent-asks-colleagues.webp" alt="The agent asks colleagues" width="900">
+
+**Fast-forward: the backorder arrives**
+
+<img src="docs/screenshots/47-flow-fast-forward-backorder-price-cap.webp" alt="Fast-forward: the backorder arrives" width="900">
+
+**Bank change: callback and two approvers**
+
+<img src="docs/screenshots/48-flow-bank-change-two-approvers.webp" alt="Bank change: callback and two approvers" width="900">
+
+**Payment run takes the early-payment discount**
+
+<img src="docs/screenshots/49-flow-payment-run-early-discount.webp" alt="Payment run takes the early-payment discount" width="900">
+
+**Contract clause highlighted**
+
+<img src="docs/screenshots/50-flow-contract-clause-highlighted.webp" alt="Contract clause highlighted" width="900">
+
+**Attack lab: lookalike vendor caught**
+
+<img src="docs/screenshots/51-flow-attack-lab-lookalike-caught.webp" alt="Attack lab: lookalike vendor caught" width="900">
+
+**Statements: a forgery exposed, a credit claimed**
+
+<img src="docs/screenshots/52-flow-statements-forgery-and-credit.webp" alt="Statements: a forgery exposed, a credit claimed" width="900">
+
+</details>
+
+<details>
+<summary>Mobile (2)</summary>
+
+**Dashboard**
+
+<img src="docs/screenshots/30-mobile-dashboard.webp" alt="Dashboard" width="412">
+
+**Approvals**
+
+<img src="docs/screenshots/31-mobile-approvals.webp" alt="Approvals" width="412">
+
+</details>
+
 ## Design: the model reads and writes, code decides
 
 ```mermaid
