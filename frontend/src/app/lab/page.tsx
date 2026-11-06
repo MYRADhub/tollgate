@@ -12,11 +12,12 @@ type Attempt = { group: string; template: string; name: string; technique: strin
 type Evals = {
   available: boolean;
   ran_at?: string;
+  suites_ran_at?: Record<string, string>;
   runs_per_case?: number;
   passed?: number;
   total?: number;
   models?: Record<string, string>;
-  suites?: Record<string, { case: string; name?: string; runs: number; passed: number; controls_fired?: Record<string, number> }[]>;
+  suites?: Record<string, { case: string; name?: string; runs: number; passed: number; model_passed?: number; controls_fired?: Record<string, number> }[]>;
 };
 
 const SUITE: Record<string, string> = { attacks: "Attacks stopped before payment", inbox: "Demo inbox outcomes", contracts: "Contract terms read correctly", critic: "Critic verdicts", inquiries: "Vendor questions answered safely", statements: "Vendor statements read and reconciled", fingerprint: "Document fingerprint (our own model)" };
@@ -70,6 +71,8 @@ function Launch({ t, onDone }: { t: Template; onDone: () => void }) {
 
 function Scorecard({ e }: { e: Evals }) {
   if (!e.available || !e.suites) return null;
+  const dates = [...new Set(Object.values(e.suites_ran_at || {}))].sort();
+  const when = (d: string) => new Date(d).toLocaleString();
   return (
     <Card
       title={
@@ -77,12 +80,14 @@ function Scorecard({ e }: { e: Evals }) {
           <ShieldCheck className="h-4 w-4 text-emerald-600" /> Evaluation on the real Vultr models: {e.passed}/{e.total} passed
         </span>
       }
-      action={<span className="text-[11px] text-slate-500">{e.runs_per_case} runs per case · {e.ran_at && new Date(e.ran_at).toLocaleString()}</span>}
+      action={<span className="text-[11px] text-slate-500">{e.runs_per_case} runs per case · {dates.length > 1 ? `suites run between ${when(dates[0])} and ${when(dates[dates.length - 1])}` : e.ran_at && when(e.ran_at)}</span>}
     >
       <div className="grid gap-4 lg:grid-cols-2">
         {Object.entries(e.suites).map(([k, cases]) => {
           const p = cases.reduce((a, c) => a + c.passed, 0);
           const t = cases.reduce((a, c) => a + c.runs, 0);
+          const scoredAlone = cases.every((c) => c.model_passed !== undefined);
+          const alone = cases.reduce((a, c) => a + (c.model_passed ?? 0), 0);
           return (
             <div key={k} className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
               <div className="mb-1.5 flex justify-between text-[13px] font-medium">
@@ -91,11 +96,21 @@ function Scorecard({ e }: { e: Evals }) {
                   {p}/{t}
                 </span>
               </div>
+              {scoredAlone && (
+                <p className="mb-1.5 text-[11.5px] text-slate-500">
+                  The model alone: {alone}/{t}. With the recomputation from the source records under it: {p}/{t}. Where the two differ, the case shows both.
+                </p>
+              )}
               <ul className="space-y-0.5">
                 {cases.map((c) => (
                   <li key={c.case} className="flex justify-between gap-3 text-[12px] text-slate-600">
                     <span className="truncate">{c.name || c.case}</span>
                     <span className="tabular-nums">
+                      {c.model_passed !== undefined && c.model_passed !== c.passed && (
+                        <span className="mr-1.5 text-slate-400" title="The model alone">
+                          {c.model_passed}/{c.runs} →
+                        </span>
+                      )}
                       {c.passed}/{c.runs}
                     </span>
                   </li>

@@ -18,7 +18,7 @@ Tollgate also trains its own model: a fingerprint of how each vendor's billing s
 
 It reconciles vendor statements to the cent: invoices we never received, payments the vendor never applied, credit memos we never took (claimed against the next payment), and invoices the vendor's own statement does not list, which is how the demo's forged invoice is confirmed. It also answers vendors' "when will we be paid?" emails from the ledger: only for the vendor's own invoices, only to the registered sender, never changing bank details by email, and with every figure in the model's wording checked before it is sent.
 
-An attack lab lets anyone try to fool it with ten attack types or their own PDF. On the real Vultr models the eval suite passes all 133 cases, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work. Model usage costs about a third of a cent per invoice.
+An attack lab lets anyone try to fool it with ten attack types or their own PDF. On the real Vultr models the eval suite passes 135 of 136 cases (the miss is the critic cautiously querying a correct credit), including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work. Model usage costs about a third of a cent per invoice.
 
 Built on four Vultr services: Cloud Compute, Serverless Inference (Qwen 3.8 27B, DeepSeek V4.1 Flash, GLM-5.3 Flash, Nemotron 3.5 content safety), Managed PostgreSQL and Object Storage.
 
@@ -43,7 +43,7 @@ Record at 1600x1000 or larger, from a reset demo (Invoices, "Reset demo"). For a
 | 2:15 | Vendors & POs: Document fingerprints | "That model is ours. One per vendor, trained on its past invoices: the software, fonts, where every label sits. On held-out data: no false alarms on 70 genuine invoices, and all 112 forgeries caught, even ones that copy the vendor's fonts and metadata." |
 | 2:40 | Briefing: approve OC-7720 as Rosa Kim (one click) | "Ostara's PO used list price; the contract gives a volume price. $1,416 back, deducted with the clause quoted. A second model, the critic, recomputed the payment and agrees. I approve it from the briefing." Mention Polaris: "Polaris owes $975 for an outage, same way." |
 | 3:05 | Statements, Load demo statements | "Vendors' statements, reconciled to the cent: credit memos nobody claimed, payments they never applied. And Brightline's own statement doesn't list BIS-2090. The fourth independent signal." |
-| 3:30 | Attack lab: "A real invoice, quietly edited", then the scorecard | "Anyone can try to fool it. Here a real invoice was edited to raise a price by 1.7 percent, inside tolerance, totals fixed. Every field check passes; the fingerprint holds it. On the real Vultr models the eval suite passes all 133 cases." |
+| 3:30 | Attack lab: "A real invoice, quietly edited", then the scorecard | "Anyone can try to fool it. Here a real invoice was edited to raise a price by 1.7 percent, inside tolerance, totals fixed. Every field check passes; the fingerprint holds it. On the real Vultr models the eval suite passes 135 of 136 cases." |
 | 3:55 | Slide: business, then close | "AP teams spend about ten dollars an invoice. Tollgate runs on a third of a cent of inference, clears most exceptions by itself, and contract and statement recoveries alone can pay for it. Tollgate: every invoice earns its payment. Live on Vultr, code on GitHub." |
 
 ## Before submitting

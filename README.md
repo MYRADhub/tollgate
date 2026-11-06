@@ -16,10 +16,10 @@ Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering t
 |---|---|
 | Money recovered in the demo | $2,434.20 under contracts (SLA credit, volume price, price cap) and $476.20 in credit memos from vendor statements |
 | Model cost | about $0.0033 per invoice on Vultr Serverless Inference (best-in-class AP teams: $2.78, Ardent Partners 2025) |
-| Evals on the real models | 133/133, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
+| Evals on the real models | 135/136, including 30/30 attacks stopped before payment and the demo inbox run through a simulated day of exception work |
 | Exceptions cleared with no one in AP touching them | On the real models, after one simulated day: all 3 that someone inside the company could settle (missing PO, unordered fee, backorder); 2 still waiting on vendors; the 3 that need judgment (bank change, forged invoice, unknown vendor) handed over with a recommendation |
 | Our own model | Per-vendor document fingerprint: 0 false alarms on 70 held-out genuine invoices, 112 of 112 forgeries caught, including ones that copy the vendor's fonts and metadata (on generated invoice archives) |
-| Tests | 183 backend tests, 21 browser tests (also run against the live deployment) |
+| Tests | 186 backend tests, 21 browser tests (also run against the live deployment) |
 
 ---
 
@@ -308,13 +308,13 @@ Every model call made while working an invoice is charged to it. On the real mod
 | Attacks stopped before payment (10 techniques) | 30/30 |
 | Demo inbox reaches its expected outcome and recovery amounts after a simulated day: colleagues answer, the backorder arrives (12 invoices) | 36/36 |
 | Contract terms extracted exactly, with verbatim quotes (6 contracts) | 18/18 |
-| Critic: disagrees with planted errors, agrees with correct proposals (6 cases) | 18/18 |
+| Critic: disagrees with planted errors, agrees with correct proposals (7 cases; scored for the model alone and with the recomputation floor under it) | 20/21 |
 | Vendor questions: correct answer, nothing disclosed to the wrong sender, bank details unchanged (6 cases) | 18/18 |
 | Vendor statements: every line read exactly, reconciliation fully explained (2 statements) | 6/6 |
 | Document fingerprint, our own model: no false alarm on 10 held-out genuine invoices and all 16 forgeries caught (7 vendors, deterministic) | 7/7 |
-| **Total** | **133/133** |
+| **Total** | **135/136** |
 
-Each case runs three times on a fresh database. Earlier runs had single misses (the critic answering "concerns" on a correct proposal, which errs on the safe side; a lookalike account on a shared mail domain, since fixed), so treat the rate as high rather than perfect. There are also 183 unit and integration tests and 21 browser tests (see Running locally).
+Each case runs three times on a fresh database. The one miss is the critic answering "concerns" on a correct SLA credit, which errs on the safe side: a controller looks at the payment. Earlier runs had the same occasional miss and a lookalike account on a shared mail domain (since fixed), so treat the rate as high rather than perfect. The critic suite plants four errors in the records (a wrong SLA tier, a missed volume price, an over-claimed deduction, transposed digits) and runs the full review. The model alone caught all twelve planted runs, so the recomputation floor changed no verdict in this run; it is there for the run where the model does not. The critic suite was re-run on 2026-11-06, the other suites on 2026-11-05. There are also 186 unit and integration tests and 21 browser tests (see Running locally).
 
 ## Vultr services used
 
@@ -381,7 +381,7 @@ npm run dev -- --port 3100                   # proxies /api to http://127.0.0.1:
 
 Tests, from the repo root:
 
-- `npm test`: 183 backend unit and integration tests, then the frontend type check and lint.
+- `npm test`: 186 backend unit and integration tests, then the frontend type check and lint.
 - `npm run test:e2e`: 21 Playwright browser tests that boot an isolated API, worker and web app and click through every flow: the guided demo, the exception agent and briefing, fast-forward, the fingerprint and what it learns from a controller, the self-playing "Show me", contract recovery, hidden-instruction quarantine, role-based approvals, the vendor reply loop, goods receipt, the two-person bank change, the payment run and bank file, contracts, the attack lab, audit verification, rejection dialogs, uploads, error messages that stay until dismissed, and mobile.
 
 ## Deploying on Vultr

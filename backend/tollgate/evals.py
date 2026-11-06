@@ -6,7 +6,8 @@ Four suites, each case run on a fresh database:
   attacks    every attack-lab template must be stopped before payment
   inbox      every demo invoice must reach its expected outcome after a simulated day of exception work
   contracts  model-extracted contract terms must equal the reviewed terms
-  critic     the critic must disagree with planted errors and agree with correct proposals
+  critic     the critic must disagree with planted errors and agree with correct proposals; scored for the
+             model alone and with the recomputation floor under it
   inquiries  vendor questions answered correctly, with nothing disclosed to the wrong sender
   statements every line of the demo statements read exactly, and the reconciliation fully explained
   fingerprint Tollgate's own per-vendor document model: no false alarms on held-out genuine invoices, every forgery caught
@@ -21,6 +22,7 @@ import logging
 import tempfile
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent / "eval_results.json"
@@ -168,37 +170,53 @@ def _round(p):
 
 
 def suite_critic(runs: int) -> list[dict]:
-    from decimal import Decimal
+    fresh_db()
+    return critic_cases(runs)
+
+
+def critic_cases(runs: int) -> list[dict]:
+    """Each planted error is written into the records the critic reads, then the full review runs:
+    the model's verdict, and the recomputation floor under it. Both are scored, so the scorecard shows
+    what the model catches alone and what the floor adds. Every run is rolled back."""
+    from collections import Counter
 
     from sqlalchemy import select
 
     from . import critic, pipeline
-    from .config import get_settings
-    from .db import session_scope
-    from .llm import chat_json
-    from .models import Invoice
+    from .agent import recoveries
+    from .db import SessionLocal, session_scope
+    from .models import AuditEvent, Invoice
     from .seed import demo_inbox
 
-    def wrong_tier(p):
-        p["deductions"][0]["amount"] = "650.00"
-        p["deductions"][0]["detail"] = p["deductions"][0]["detail"].replace("15%", "10%").replace("975.00", "650.00")
-        p["pay"] = "5850.00"
+    def deduction(s, inv, amount, detail=None):
+        f = recoveries(inv)[0]
+        f.amount_at_risk = amount
+        if detail:
+            f.detail = detail(f.detail)
 
-    def missed(p):
-        p["deductions"], p["pay"] = [], "33360.00"
+    def wrong_tier(s, inv):
+        deduction(s, inv, Decimal("650.00"), lambda d: d.replace("15%", "10%").replace("975.00", "650.00"))
 
-    def overclaim(p):
-        p["deductions"][0]["amount"], p["pay"] = "2160.00", "31200.00"
+    def missed(s, inv):
+        s.delete(recoveries(inv)[0])
+        s.flush()
+        s.refresh(inv)
+
+    def overclaim(s, inv):
+        deduction(s, inv, Decimal("2160.00"))
+
+    def transposed(s, inv):
+        deduction(s, inv, Decimal("1461.00"))
 
     cases = [
         ("planted: wrong SLA tier", "PNS-55120", wrong_tier, {"disagree", "concerns"}),
         ("planted: volume price missed", "OC-7720", missed, {"disagree", "concerns"}),
         ("planted: deduction over-claimed", "OC-7720", overclaim, {"disagree", "concerns"}),
-        ("correct: SLA credit", "PNS-55120", lambda p: None, {"agree"}),
-        ("correct: volume price", "OC-7720", lambda p: None, {"agree"}),
-        ("correct: price cap with tax", "GE-5561", lambda p: None, {"agree"}),
+        ("planted: deduction digits transposed", "OC-7720", transposed, {"disagree", "concerns"}),
+        ("correct: SLA credit", "PNS-55120", None, {"agree"}),
+        ("correct: volume price", "OC-7720", None, {"agree"}),
+        ("correct: price cap with tax", "GE-5561", None, {"agree"}),
     ]
-    fresh_db()
     with session_scope() as s:
         for d in demo_inbox():
             if d.spec.number in {c[1] for c in cases}:
@@ -209,21 +227,28 @@ def suite_critic(runs: int) -> list[dict]:
 
                     record_receipt(s, inv.id, user="Receiving dock")
                 pipeline.run_controls(s, inv)
-        contexts = {}
-        for name, number, mutate, _ in cases:
-            inv = s.execute(select(Invoice).where(Invoice.number == number)).scalar_one()
-            p = critic.proposal_for(inv)
-            mutate(p)
-            contexts[name] = critic._context(s, inv, p)
     out = []
-    for name, _n, _m, want in cases:
-        passes = 0
+    for name, number, mutate, want in cases:
+        final, model = Counter(), Counter()
         for _ in range(runs):
-            d = chat_json(get_settings().model_critic, [{"role": "system", "content": critic.SYSTEM}, {"role": "user", "content": contexts[name]}],
-                          max_tokens=10000, temperature=0)
-            passes += int(str(d.get("verdict")).lower() in want)
-        out.append({"case": name, "runs": runs, "passed": passes})
-        print(f"  critic {name:34} {passes}/{runs}")
+            s = SessionLocal()
+            try:
+                inv = s.execute(select(Invoice).where(Invoice.number == number)).scalar_one()
+                if mutate:
+                    mutate(s, inv)
+                rv = critic.review(s, inv)
+                ev = s.execute(select(AuditEvent).where(AuditEvent.invoice_id == inv.id, AuditEvent.actor == "critic")
+                               .order_by(AuditEvent.id.desc())).scalars().first()
+                final[rv.verdict] += 1
+                model[ev.detail["model_verdict"]] += 1
+            finally:
+                s.rollback()
+                s.close()
+        passed = sum(n for v, n in final.items() if v in want)
+        model_passed = sum(n for v, n in model.items() if v in want)
+        out.append({"case": name, "runs": runs, "passed": passed, "model_passed": model_passed,
+                    "verdicts": dict(final), "model_verdicts": dict(model)})
+        print(f"  critic {name:38} {passed}/{runs} (model alone {model_passed}/{runs})")
     return out
 
 
@@ -382,6 +407,9 @@ def main() -> None:
     }
     if OUT.exists() and a.suites != "attacks,inbox,contracts,critic,inquiries,statements,fingerprint":
         prev = json.loads(OUT.read_text())
+        # A partial run replaces only its suites; each suite keeps the date it actually ran.
+        when = prev.setdefault("suites_ran_at", {k: prev["ran_at"] for k in prev["suites"]})
+        when.update({k: result["ran_at"] for k in suites})
         prev["suites"].update(suites)
         prev["ran_at"] = result["ran_at"]
         prev["passed"] = sum(c["passed"] for v in prev["suites"].values() for c in v)
@@ -389,7 +417,7 @@ def main() -> None:
         result = prev
     OUT.write_text(json.dumps(result, indent=1))
     print(f"wrote {OUT}: {result['passed']}/{result['total']}")
-    print(f"{passed}/{total} passed in {result['seconds']}s")
+    print(f"{passed}/{total} passed in {round(time.time() - t0, 1)}s")
 
 
 if __name__ == "__main__":

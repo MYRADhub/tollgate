@@ -1,5 +1,5 @@
 {
- "ran_at": "2026-11-05T06:14:13.982033+00:00",
+ "ran_at": "2026-11-06T19:25:32.133496+00:00",
  "runs_per_case": 3,
  "models": {
   "vision": "qwen3.8-27b",
@@ -7,8 +7,8 @@
   "critic": "glm-5.3-flash",
   "safety": "nemotron-3.5-content-safety"
  },
- "passed": 133,
- "total": 133,
+ "passed": 135,
+ "total": 136,
  "seconds": 695.5,
  "suites": {
   "attacks": [
@@ -219,32 +219,88 @@
    {
     "case": "planted: wrong SLA tier",
     "runs": 3,
-    "passed": 3
+    "passed": 3,
+    "model_passed": 3,
+    "verdicts": {
+     "disagree": 3
+    },
+    "model_verdicts": {
+     "disagree": 3
+    }
    },
    {
     "case": "planted: volume price missed",
     "runs": 3,
-    "passed": 3
+    "passed": 3,
+    "model_passed": 3,
+    "verdicts": {
+     "disagree": 3
+    },
+    "model_verdicts": {
+     "disagree": 3
+    }
    },
    {
     "case": "planted: deduction over-claimed",
     "runs": 3,
-    "passed": 3
+    "passed": 3,
+    "model_passed": 3,
+    "verdicts": {
+     "disagree": 3
+    },
+    "model_verdicts": {
+     "disagree": 3
+    }
+   },
+   {
+    "case": "planted: deduction digits transposed",
+    "runs": 3,
+    "passed": 3,
+    "model_passed": 3,
+    "verdicts": {
+     "disagree": 3
+    },
+    "model_verdicts": {
+     "disagree": 3
+    }
    },
    {
     "case": "correct: SLA credit",
     "runs": 3,
-    "passed": 3
+    "passed": 2,
+    "model_passed": 2,
+    "verdicts": {
+     "agree": 2,
+     "concerns": 1
+    },
+    "model_verdicts": {
+     "agree": 2,
+     "concerns": 1
+    }
    },
    {
     "case": "correct: volume price",
     "runs": 3,
-    "passed": 3
+    "passed": 3,
+    "model_passed": 3,
+    "verdicts": {
+     "agree": 3
+    },
+    "model_verdicts": {
+     "agree": 3
+    }
    },
    {
     "case": "correct: price cap with tax",
     "runs": 3,
-    "passed": 3
+    "passed": 3,
+    "model_passed": 3,
+    "verdicts": {
+     "agree": 3
+    },
+    "model_verdicts": {
+     "agree": 3
+    }
    }
   ],
   "inquiries": [
@@ -496,5 +552,14 @@
     }
    }
   ]
+ },
+ "suites_ran_at": {
+  "attacks": "2026-11-05T06:14:13.982033+00:00",
+  "inbox": "2026-11-05T06:14:13.982033+00:00",
+  "contracts": "2026-11-05T06:14:13.982033+00:00",
+  "critic": "2026-11-06T19:25:32.133496+00:00",
+  "inquiries": "2026-11-05T06:14:13.982033+00:00",
+  "statements": "2026-11-05T06:14:13.982033+00:00",
+  "fingerprint": "2026-11-05T06:14:13.982033+00:00"
  }
 }
