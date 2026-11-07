@@ -48,7 +48,7 @@ Record at 1600x1000 or larger, from a reset demo ("Reset demo" on the Invoices p
 
 ## Before submitting
 
-- Export the deck to PDF from the deck's Share > Export menu.
-- Cover image: a dashboard screenshot at 16:10 after the inbox is loaded.
+- Export the deck to PDF from the deck's Share > Export menu: https://claude.ai/artifact/37CHCJ7CjByk9EEhFKrFi3
+- Cover image: `docs/cover.jpg` (1600x1000, the live dashboard after the inbox is worked).
 - If the critic queries Polaris PNS-55120 during the take (it did once in three eval runs), it appears under Needs you for a controller; approve it as Rosa Kim or retake. It is the safe outcome, not a failure.
 - Reset the demo after recording so judges start from an empty inbox (the shared-demo badge shows when it was last reset).
