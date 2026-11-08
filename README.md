@@ -4,11 +4,9 @@
 
 Tollgate reads vendor invoices as they arrive in the AP inbox and decides, invoice by invoice, what the company actually owes. It checks every invoice against purchase orders, goods receipts and the vendor master; reads each vendor's contract to find the money owed back (service credits, volume prices, price caps) and deducts it with the clause quoted; works exceptions to resolution on its own: it looks things up, asks the budget owner, waits for the answer or the delivery, and acts; checks that each PDF was really produced by the vendor's billing system with a fingerprint model it trains per vendor; has an independent second model check every payment that involves a judgment; and plans when to pay so early-payment discounts are captured without breaking the cash floor. People see only what needs judgment.
 
-Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering the Future of Work: finance and procurement). Everything runs on Vultr.
+Built for the lablab.ai **Vultr: Agent Rush** hackathon, Challenge 2 (Powering the Future of Work: finance and procurement). The product runs on Vultr; the AP mailbox is Gmail.
 
 - Live demo: https://45.32.218.92.sslip.io
-- Video: _link_
-- Slides: _link_
 
 **Judging in two minutes:** open the live demo and press **Show me in 2 minutes**: it plays the story by itself with captions. **In five minutes:** follow the guided demo on the dashboard (nine steps). Load the inbox and watch the "While you were away" briefing fill in: within a minute the agent has found the PO an invoice forgot to quote, had its owner confirm it, and paid it; press **Fast-forward a day** (top right) and a backordered delivery arrives and another invoice pays. What is left for people are the decisions that need judgment, each with the agent's recommendation. The thread to watch is BIS-2090, a forged invoice caught four independent ways: hidden text found by comparing the PDF's text with its pixels, a bank account that is not the one on file, a PDF that Brightline's billing system did not produce (Tollgate's own fingerprint model), and the vendor's own statement not listing it. Then try to fool it in the Attack lab with your own PDF. The demo is shared between visitors; the badge in the top bar says when it was last reset, and a reset is refused within ten minutes of the last one so one judge cannot wipe another's demo.
 
